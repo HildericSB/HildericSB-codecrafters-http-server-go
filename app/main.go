@@ -41,14 +41,28 @@ func main() {
 
 	fmt.Println(path)
 
-	var res string
+	var rep string
+
+	pathSplit := strings.Split(path, "/")
 
 	if path == "/" {
-		res = "HTTP/1.1 200 OK\r\n\r\n"
+		rep = "HTTP/1.1 200 OK\r\n\r\n"
+	} else if len(pathSplit) >= 2 && pathSplit[1] == "echo" {
+		var content string
+		if len(pathSplit) > 2 {
+			content = pathSplit[2]
+		}
+		rep = fmt.Sprintf(
+			"HTTP/1.1 200 OK\r\n"+
+				"Content-Type: text/plain\r\n"+
+				"Content-Length: %d\r\n"+
+				"\r\n"+
+				"%s", len(content), content)
 	} else {
-		res = "HTTP/1.1 404 Not Found\r\n\r\n"
+		rep = "HTTP/1.1 404 Not Found\r\n\r\n"
 	}
-	fmt.Println(res)
 
-	conn.Write([]byte(res))
+	fmt.Println(rep)
+
+	conn.Write([]byte(rep))
 }
