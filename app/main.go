@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -30,47 +29,26 @@ func main() {
 	}
 	defer conn.Close()
 
-	// buffer := make([]byte, 1024)
-	// n, err := conn.Read(buffer)
-
-	// if err != nil {
-	// 	fmt.Println("Error reading connection", err.Error())
-	// }
-
-	// fmt.Printf("Bytes read : %d \n", n)
-
-	// Reading the request
-	scanner := bufio.NewScanner(conn)
-
-	lineNumber := 1
-
-	var method, path, version string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			break
-		}
-
-		if lineNumber == 1 {
-			fields := strings.Fields(line)
-
-			if len(fields) < 3 {
-				fmt.Println("ERROR : request is incorect")
-			}
-
-			method = fields[0]
-			path = fields[1]
-			version = fields[2]
-		}
-		lineNumber++
+	buffer := make([]byte, 1024)
+	_, err = conn.Read(buffer)
+	if err != nil {
+		fmt.Println("Error reading connection : ", err)
 	}
 
-	if path != "/" {
-		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-		method = method
-		version = version
+	req := string(buffer)
+	lines := strings.Split(req, "\r\n")
+	path := strings.Split(lines[0], " ")[1]
+
+	fmt.Println(path)
+
+	var res string
+
+	if path == "/" {
+		res = "HTTP/1.1 200 OK\r\n\r\n"
 	} else {
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-
+		res = "HTTP/1.1 404 Not Found\r\n\r\n"
 	}
+	fmt.Println(res)
+
+	conn.Write([]byte(res))
 }
