@@ -72,7 +72,9 @@ func main() {
 		case "user-agent":
 			rep = handleUserAgent(headers)
 		}
-	} else {
+	}
+
+	if rep == "" {
 		rep = "HTTP/1.1 404 Not Found\r\n\r\n"
 	}
 
