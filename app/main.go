@@ -14,7 +14,7 @@ var _ = os.Exit
 const CRLF = "\r\n"
 
 func main() {
-
+	// Create TCP listener on 4221
 	listener, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
@@ -24,15 +24,22 @@ func main() {
 
 	fmt.Println("Server listening on :4221")
 
-	conn, err := listener.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		panic(err)
+	// Listen for new connections
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+		}
+
+		go handleConnection(conn)
 	}
+}
+
+func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	buffer := make([]byte, 1024)
-	_, err = conn.Read(buffer)
+	_, err := conn.Read(buffer)
 	if err != nil {
 		fmt.Println("Error reading connection : ", err)
 	}
