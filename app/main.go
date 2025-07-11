@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -11,9 +12,13 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 
+var FILE_DIRECTORY = "/"
+
 const CRLF = "\r\n"
 
 func main() {
+	handleCommandLineFlag()
+
 	// Create TCP listener on 4221
 	listener, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
@@ -33,6 +38,11 @@ func main() {
 
 		go handleConnection(conn)
 	}
+}
+
+func handleCommandLineFlag() {
+	flag.StringVar(&FILE_DIRECTORY, "directory", "/", "specifies the directory where the files are stored, as an absolute path.")
+	flag.Parse()
 }
 
 func handleConnection(conn net.Conn) {
@@ -99,7 +109,7 @@ func handleFileRead(pathsplit []string) string {
 		return "HTTP/1.1 400 Bad Request\r\n\r\n"
 	}
 
-	fileContent, err := os.ReadFile("/tmp/" + pathsplit[2])
+	fileContent, err := os.ReadFile(FILE_DIRECTORY + pathsplit[2])
 	if err != nil {
 		fmt.Println("Error reading file ", pathsplit[2])
 		return "HTTP/1.1 404 Not Found\r\n\r\n"
