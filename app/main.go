@@ -78,7 +78,10 @@ func handleConnection(conn net.Conn) {
 			rep = handleEcho(pathSplit)
 		case "user-agent":
 			rep = handleUserAgent(headers)
+		case "files":
+			rep = handleFileRead(pathSplit)
 		}
+
 	}
 
 	if rep == "" {
@@ -88,6 +91,26 @@ func handleConnection(conn net.Conn) {
 	fmt.Println(rep)
 
 	conn.Write([]byte(rep))
+}
+
+func handleFileRead(pathsplit []string) string {
+	if len(pathsplit) < 3 {
+		fmt.Println("Not enough arg in url for file reading")
+		return "HTTP/1.1 400 Bad Request\r\n\r\n"
+	}
+
+	fileContent, err := os.ReadFile("/tmp/" + pathsplit[2])
+	if err != nil {
+		fmt.Println("Error reading file ", pathsplit[2])
+		return "HTTP/1.1 404 Not Found\r\n\r\n"
+	}
+
+	return fmt.Sprintf(
+		"HTTP/1.1 200 OK\r\n"+
+			"Content-Type: application/octet-stream\r\n"+
+			"Content-Length: %d\r\n"+
+			"\r\n"+
+			"%s", len(fileContent), fileContent)
 }
 
 func handleEcho(pathSplit []string) string {
