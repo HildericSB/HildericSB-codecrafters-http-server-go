@@ -16,6 +16,12 @@ var FILE_DIRECTORY = "/"
 
 const CRLF = "\r\n"
 
+type request struct {
+	path       string
+	headers    map[string]string
+	connection net.Conn
+}
+
 func main() {
 	handleCommandLineFlag()
 
@@ -56,38 +62,28 @@ func handleConnection(conn net.Conn) {
 
 	req := string(buffer)
 	lines := strings.Split(req, "\r\n")
-	path := strings.Split(lines[0], " ")[1]
-
-	// Put HTTP headers in a map
-	headers := make(map[string]string)
-	for _, line := range lines[1:] {
-		// If line is empty, there is no more header
-		if line == "" {
-			break
-		}
-		headerSplit := strings.SplitN(line, ":", 2)
-		for i, v := range headerSplit {
-			headerSplit[i] = strings.TrimSpace(v)
-		}
-		headers[headerSplit[0]] = headerSplit[1]
+	request := request{
+		path:       strings.Split(lines[0], " ")[1],
+		headers:    getHeaders(lines),
+		connection: conn,
 	}
 
-	fmt.Println("Path : " + path)
-	fmt.Println("Headers : \n", headers)
+	fmt.Println("Path : " + request.path)
+	fmt.Println("Headers : \n", request.headers)
 
 	var rep string
 
-	pathSplit := strings.Split(path, "/")
+	pathSplit := strings.Split(request.path, "/")
 	pathSplitLength := len(pathSplit)
 
-	if path == "/" {
+	if request.path == "/" {
 		rep = "HTTP/1.1 200 OK\r\n\r\n"
 	} else if pathSplitLength >= 2 {
 		switch pathSplit[1] {
 		case "echo":
 			rep = handleEcho(pathSplit)
 		case "user-agent":
-			rep = handleUserAgent(headers)
+			rep = handleUserAgent(request.headers)
 		case "files":
 			rep = handleFileRead(pathSplit)
 		}
@@ -103,6 +99,25 @@ func handleConnection(conn net.Conn) {
 	conn.Write([]byte(rep))
 }
 
+func getHeaders(lines []string) map[string]string {
+	// Put HTTP headers in a map
+	headers := make(map[string]string)
+
+	for _, line := range lines[1:] {
+		// If line is empty, there is no more header
+		if line == "" {
+			break
+		}
+		headerSplit := strings.SplitN(line, ":", 2)
+		for i, v := range headerSplit {
+			headerSplit[i] = strings.TrimSpace(v)
+		}
+		headers[headerSplit[0]] = headerSplit[1]
+	}
+
+	return headers
+}
+
 func handleFileRead(pathsplit []string) string {
 	if len(pathsplit) < 3 {
 		fmt.Println("Not enough arg in url for file reading")
@@ -111,7 +126,7 @@ func handleFileRead(pathsplit []string) string {
 
 	fileContent, err := os.ReadFile(FILE_DIRECTORY + pathsplit[2])
 	if err != nil {
-		fmt.Println("Error reading file ", pathsplit[2])
+		fmt.Println("Error reading file ", FILE_DIRECTORY+pathsplit[2], err)
 		return "HTTP/1.1 404 Not Found\r\n\r\n"
 	}
 
