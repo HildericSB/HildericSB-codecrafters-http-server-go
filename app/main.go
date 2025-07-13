@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -12,7 +14,7 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 
-var FILE_DIRECTORY = "/"
+var FILE_DIRECTORY = "/tmp/"
 
 const CRLF = "\r\n"
 
@@ -20,9 +22,12 @@ type request struct {
 	path       string
 	headers    map[string]string
 	connection net.Conn
+	method     string
+	body       string
 }
 
 func main() {
+
 	handleCommandLineFlag()
 
 	// Create TCP listener on 4221
@@ -47,7 +52,7 @@ func main() {
 }
 
 func handleCommandLineFlag() {
-	flag.StringVar(&FILE_DIRECTORY, "directory", "/", "specifies the directory where the files are stored, as an absolute path.")
+	flag.StringVar(&FILE_DIRECTORY, "directory", FILE_DIRECTORY, "specifies the directory where the files are stored, as an absolute path.")
 	flag.Parse()
 }
 
@@ -64,9 +69,10 @@ func handleConnection(conn net.Conn) {
 	lines := strings.Split(req, "\r\n")
 	request := request{
 		path:       strings.Split(lines[0], " ")[1],
-		headers:    getHeaders(lines),
+		method:     strings.Split(lines[0], " ")[0],
 		connection: conn,
 	}
+	parseRequest(&request, lines)
 
 	fmt.Println("Path : " + request.path)
 	fmt.Println("Headers : \n", request.headers)
@@ -85,7 +91,13 @@ func handleConnection(conn net.Conn) {
 		case "user-agent":
 			rep = handleUserAgent(request.headers)
 		case "files":
-			rep = handleFileRead(pathSplit)
+			if request.method == "GET" {
+				rep = handleFileRead(pathSplit)
+			}
+
+			if request.method == "POST" {
+				rep = handleFileUpload(request)
+			}
 		}
 
 	}
@@ -99,23 +111,49 @@ func handleConnection(conn net.Conn) {
 	conn.Write([]byte(rep))
 }
 
-func getHeaders(lines []string) map[string]string {
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func handleFileUpload(req request) string {
+	i, err := strconv.Atoi(req.headers["Content-Length"])
+	check(err)
+
+	fileData := req.body[:i]
+
+	err = os.WriteFile(FILE_DIRECTORY+filepath.Base(req.path), []byte(fileData), 0666)
+	check(err)
+
+	return "HTTP/1.1 201 Created\r\n\r\n"
+}
+
+func parseRequest(request *request, lines []string) {
 	// Put HTTP headers in a map
 	headers := make(map[string]string)
 
+	bodyMode := false
 	for _, line := range lines[1:] {
-		// If line is empty, there is no more header
+		// If line is empty, there is no more header, it's the body now
 		if line == "" {
-			break
+			bodyMode = true
+			continue
 		}
-		headerSplit := strings.SplitN(line, ":", 2)
-		for i, v := range headerSplit {
-			headerSplit[i] = strings.TrimSpace(v)
+
+		if !bodyMode {
+			headerSplit := strings.SplitN(line, ":", 2)
+			for i, v := range headerSplit {
+				headerSplit[i] = strings.TrimSpace(v)
+			}
+			headers[headerSplit[0]] = headerSplit[1]
+		} else {
+			request.body = line
 		}
-		headers[headerSplit[0]] = headerSplit[1]
+
 	}
 
-	return headers
+	request.headers = headers
 }
 
 func handleFileRead(pathsplit []string) string {
