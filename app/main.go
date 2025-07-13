@@ -26,6 +26,42 @@ type request struct {
 	body       string
 }
 
+type response struct {
+	statusCode int
+	body       string
+	headers    map[string]string
+	connection net.Conn
+}
+
+func (r *response) sendToClient() {
+
+	var statusMessage string
+
+	switch r.statusCode {
+	case 404:
+		statusMessage = "Not Found"
+	case 201:
+		statusMessage = "Created"
+	case 400:
+		statusMessage = "Bad request"
+	case 200:
+		statusMessage = "OK"
+	default:
+		panic("HTTP statusCode unknown")
+	}
+
+	rep := "HTTP/1.1 " + strconv.Itoa(r.statusCode) + " " + statusMessage + CRLF
+	for k, v := range r.headers {
+		rep = rep + k + ":" + v + CRLF
+	}
+
+	rep = rep + CRLF + r.body
+
+	fmt.Println(rep)
+
+	r.connection.Write([]byte(rep))
+}
+
 func main() {
 
 	handleCommandLineFlag()
@@ -59,40 +95,106 @@ func handleCommandLineFlag() {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	request := parseRequest(conn)
+
+	fmt.Println("Path : " + request.path)
+	fmt.Println("Headers : \n", request.headers)
+
+	rep := createResponse(request)
+
+	encoding := request.headers["Accept-Encoding"]
+	if encoding == "gzip" {
+		// var buf bytes.Buffer
+		// zw := gzip.NewWriter(&buf)
+		// _, err := zw.Write([]byte(rep))
+		// if err != nil {
+		// 	fmt.Println("Error encoding the request")
+		// }
+	}
+
+	rep.sendToClient()
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
+}
+
+func handleFileUpload(req request) response {
+	i, err := strconv.Atoi(req.headers["Content-Length"])
+	check(err)
+
+	fileData := req.body[:i]
+
+	err = os.WriteFile(FILE_DIRECTORY+filepath.Base(req.path), []byte(fileData), 0666)
+	check(err)
+
+	return response{
+		statusCode: 201,
+	}
+}
+
+func parseRequest(conn net.Conn) request {
+
+	// Create a buffer and read the HTTP request from connection
 	buffer := make([]byte, 1024)
 	_, err := conn.Read(buffer)
 	if err != nil {
-		fmt.Println("Error reading connection : ", err)
+		fmt.Println("Error reading connection : ")
+		panic(err)
 	}
 
 	req := string(buffer)
 	lines := strings.Split(req, "\r\n")
+
+	//Read path and method type
 	request := request{
 		path:       strings.Split(lines[0], " ")[1],
 		method:     strings.Split(lines[0], " ")[0],
 		connection: conn,
 	}
-	parseRequest(&request, lines)
 
-	fmt.Println("Path : " + request.path)
-	fmt.Println("Headers : \n", request.headers)
+	// Read headers and body
+	headers := make(map[string]string)
 
-	var rep string
+	for i, line := range lines[1:] {
+		// If line is empty, there is no more header, next line is the body
+		if line == "" {
+			request.body = lines[i+2]
+			break
+		}
+
+		headerSplit := strings.SplitN(line, ":", 2)
+		for i, v := range headerSplit {
+			headerSplit[i] = strings.TrimSpace(v)
+		}
+		headers[headerSplit[0]] = headerSplit[1]
+
+	}
+
+	request.headers = headers
+
+	return request
+}
+
+func createResponse(request request) response {
+	var rep response
 
 	pathSplit := strings.Split(request.path, "/")
 	pathSplitLength := len(pathSplit)
 
 	if request.path == "/" {
-		rep = "HTTP/1.1 200 OK\r\n\r\n"
+		rep.statusCode = 200
 	} else if pathSplitLength >= 2 {
 		switch pathSplit[1] {
 		case "echo":
-			rep = handleEcho(pathSplit)
+			rep = handleEcho(request)
 		case "user-agent":
-			rep = handleUserAgent(request.headers)
+			rep = handleUserAgent(request)
 		case "files":
 			if request.method == "GET" {
-				rep = handleFileRead(pathSplit)
+				rep = handleFileRead(request)
 			}
 
 			if request.method == "POST" {
@@ -102,101 +204,78 @@ func handleConnection(conn net.Conn) {
 
 	}
 
-	if rep == "" {
-		rep = "HTTP/1.1 404 Not Found\r\n\r\n"
+	if rep.statusCode == 0 {
+		rep.statusCode = 404
 	}
 
-	fmt.Println(rep)
+	rep.connection = request.connection
 
-	conn.Write([]byte(rep))
+	return rep
 }
 
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
+func handleFileRead(request request) response {
+	pathsplit := strings.Split(request.path, "/")
 
-func handleFileUpload(req request) string {
-	i, err := strconv.Atoi(req.headers["Content-Length"])
-	check(err)
-
-	fileData := req.body[:i]
-
-	err = os.WriteFile(FILE_DIRECTORY+filepath.Base(req.path), []byte(fileData), 0666)
-	check(err)
-
-	return "HTTP/1.1 201 Created\r\n\r\n"
-}
-
-func parseRequest(request *request, lines []string) {
-	// Put HTTP headers in a map
-	headers := make(map[string]string)
-
-	bodyMode := false
-	for _, line := range lines[1:] {
-		// If line is empty, there is no more header, it's the body now
-		if line == "" {
-			bodyMode = true
-			continue
-		}
-
-		if !bodyMode {
-			headerSplit := strings.SplitN(line, ":", 2)
-			for i, v := range headerSplit {
-				headerSplit[i] = strings.TrimSpace(v)
-			}
-			headers[headerSplit[0]] = headerSplit[1]
-		} else {
-			request.body = line
-		}
-
-	}
-
-	request.headers = headers
-}
-
-func handleFileRead(pathsplit []string) string {
 	if len(pathsplit) < 3 {
 		fmt.Println("Not enough arg in url for file reading")
-		return "HTTP/1.1 400 Bad Request\r\n\r\n"
+		return badRequest400Reponse()
 	}
 
 	fileContent, err := os.ReadFile(FILE_DIRECTORY + pathsplit[2])
 	if err != nil {
 		fmt.Println("Error reading file ", FILE_DIRECTORY+pathsplit[2], err)
-		return "HTTP/1.1 404 Not Found\r\n\r\n"
+		return notFound404Reponse()
 	}
 
-	return fmt.Sprintf(
-		"HTTP/1.1 200 OK\r\n"+
-			"Content-Type: application/octet-stream\r\n"+
-			"Content-Length: %d\r\n"+
-			"\r\n"+
-			"%s", len(fileContent), fileContent)
+	return response{
+		statusCode: 200,
+		headers: map[string]string{
+			"Content-Type":   "application/octet-stream",
+			"Content-Length": strconv.Itoa(len(fileContent)),
+		},
+		body: string(fileContent),
+	}
 }
 
-func handleEcho(pathSplit []string) string {
-	content := pathSplit[2]
-	rep := fmt.Sprintf(
-		"HTTP/1.1 200 OK\r\n"+
-			"Content-Type: text/plain\r\n"+
-			"Content-Length: %d\r\n"+
-			"\r\n"+
-			"%s", len(content), content)
-
-	return rep
+func handleEcho(request request) response {
+	body := strings.TrimPrefix(request.path, "/echo/")
+	return response{
+		statusCode: 200,
+		headers: map[string]string{
+			"Content-Type":   "text/plain",
+			"Content-Length": strconv.Itoa(len(body)),
+		},
+		body: body,
+	}
 }
 
-func handleUserAgent(headers map[string]string) string {
-	if headers["User-Agent"] == "" {
-		fmt.Println("No user-agent headers")
+func handleUserAgent(request request) response {
+	userAgentHeader := request.headers["User-Agent"]
+	if userAgentHeader == "" {
+		fmt.Println("Error : No user-agent headers")
+		return response{
+			statusCode: 300,
+		}
 	}
 
-	return fmt.Sprintf(
-		"HTTP/1.1 200 OK\r\n"+
-			"Content-Type: text/plain\r\n"+
-			"Content-Length: %d\r\n"+
-			"\r\n"+
-			"%s", len(headers["User-Agent"]), headers["User-Agent"])
+	return response{
+		statusCode: 200,
+		headers: map[string]string{
+			"Content-Type":   "text/plain",
+			"Content-Length": strconv.Itoa(len(userAgentHeader)),
+		},
+		body: userAgentHeader,
+	}
+}
+
+func notFound404Reponse() response {
+	return response{
+		statusCode: 404,
+	}
+}
+
+func badRequest400Reponse() response {
+	return response{
+		statusCode: 400,
+	}
 }
