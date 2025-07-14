@@ -33,35 +33,6 @@ type response struct {
 	connection net.Conn
 }
 
-func (r *response) sendToClient() {
-
-	var statusMessage string
-
-	switch r.statusCode {
-	case 404:
-		statusMessage = "Not Found"
-	case 201:
-		statusMessage = "Created"
-	case 400:
-		statusMessage = "Bad request"
-	case 200:
-		statusMessage = "OK"
-	default:
-		panic("HTTP statusCode unknown")
-	}
-
-	rep := "HTTP/1.1 " + strconv.Itoa(r.statusCode) + " " + statusMessage + CRLF
-	for k, v := range r.headers {
-		rep = rep + k + ":" + v + CRLF
-	}
-
-	rep = rep + CRLF + r.body
-
-	fmt.Println(rep)
-
-	r.connection.Write([]byte(rep))
-}
-
 func main() {
 
 	handleCommandLineFlag()
@@ -97,22 +68,9 @@ func handleConnection(conn net.Conn) {
 
 	request := parseRequest(conn)
 
-	fmt.Println("Path : " + request.path)
-	fmt.Println("Headers : \n", request.headers)
-
 	rep := createResponse(request)
 
-	encoding := request.headers["Accept-Encoding"]
-	if encoding == "gzip" {
-		// var buf bytes.Buffer
-		// zw := gzip.NewWriter(&buf)
-		// _, err := zw.Write([]byte(rep))
-		// if err != nil {
-		// 	fmt.Println("Error encoding the request")
-		// }
-	}
-
-	rep.sendToClient()
+	rep.sendToClient(request)
 }
 
 func check(e error) {
@@ -278,4 +236,55 @@ func badRequest400Reponse() response {
 	return response{
 		statusCode: 400,
 	}
+}
+
+func (r *response) sendToClient(request request) {
+	encoding := request.headers["Accept-Encoding"]
+	var statusMessage string
+
+	switch r.statusCode {
+	case 404:
+		statusMessage = "Not Found"
+	case 201:
+		statusMessage = "Created"
+	case 400:
+		statusMessage = "Bad request"
+	case 200:
+		statusMessage = "OK"
+	default:
+		panic("HTTP statusCode unknown")
+	}
+
+	// Check compression before creating the headers
+	if encoding == "gzip" {
+		r.headers["Content-Encoding"] = "gzip"
+	}
+
+	rep := "HTTP/1.1 " + strconv.Itoa(r.statusCode) + " " + statusMessage + CRLF
+	for k, v := range r.headers {
+		rep = rep + k + ":" + v + CRLF
+	}
+
+	rep = rep + CRLF + r.body
+
+	fmt.Println("HTTP reponse : \n" + rep)
+
+	r.connection.Write([]byte(rep))
+
+	// var buf bytes.Buffer
+	// zw := gzip.NewWriter(&buf)
+	// if encoding == "gzip" {
+	// 	r.headers["Content-Encoding"] = "gzip"
+	// 	_, err := zw.Write([]byte(rep))
+	// 	if err != nil {
+	// 		fmt.Println("Error encoding the request")
+	// 	}
+
+	// 	fmt.Println(buf)
+
+	// 	r.connection.Write(buf.Bytes())
+	// } else {
+	// 	r.connection.Write([]byte(rep))
+	// }
+
 }
