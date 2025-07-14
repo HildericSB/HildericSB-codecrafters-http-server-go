@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"flag"
 	"fmt"
 	"net"
@@ -239,10 +241,22 @@ func badRequest400Reponse() response {
 }
 
 func (r *response) sendToClient(request request) {
+	body := r.body
 	encodings := request.headers["Accept-Encoding"]
-	var encoding string
+
 	if strings.Contains(encodings, "gzip") {
-		encoding = "gzip"
+		r.headers["Content-Encoding"] = "gzip"
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		_, err := zw.Write([]byte(body))
+		if err != nil {
+			fmt.Println("Error encoding the body")
+		}
+		err = zw.Close()
+		check(err)
+
+		body = buf.String()
+		r.headers["Content-Length"] = strconv.Itoa(len(body))
 	}
 
 	var statusMessage string
@@ -259,36 +273,14 @@ func (r *response) sendToClient(request request) {
 		panic("HTTP statusCode unknown")
 	}
 
-	// Check compression before creating the headers
-	if encoding == "gzip" {
-		r.headers["Content-Encoding"] = "gzip"
-	}
-
 	rep := "HTTP/1.1 " + strconv.Itoa(r.statusCode) + " " + statusMessage + CRLF
 	for k, v := range r.headers {
 		rep = rep + k + ":" + v + CRLF
 	}
 
-	rep = rep + CRLF + r.body
+	rep = rep + CRLF + body
 
 	fmt.Println("HTTP reponse : \n" + rep)
 
 	r.connection.Write([]byte(rep))
-
-	// var buf bytes.Buffer
-	// zw := gzip.NewWriter(&buf)
-	// if encoding == "gzip" {
-	// 	r.headers["Content-Encoding"] = "gzip"
-	// 	_, err := zw.Write([]byte(rep))
-	// 	if err != nil {
-	// 		fmt.Println("Error encoding the request")
-	// 	}
-
-	// 	fmt.Println(buf)
-
-	// 	r.connection.Write(buf.Bytes())
-	// } else {
-	// 	r.connection.Write([]byte(rep))
-	// }
-
 }
