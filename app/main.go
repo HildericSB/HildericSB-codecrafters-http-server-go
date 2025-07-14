@@ -239,9 +239,13 @@ func badRequest400Reponse() response {
 }
 
 func (r *response) sendToClient(request request) {
-	encoding := request.headers["Accept-Encoding"]
-	var statusMessage string
+	encodings := request.headers["Accept-Encoding"]
+	var encoding string
+	if strings.Contains(encodings, "gzip") {
+		encoding = "gzip"
+	}
 
+	var statusMessage string
 	switch r.statusCode {
 	case 404:
 		statusMessage = "Not Found"
