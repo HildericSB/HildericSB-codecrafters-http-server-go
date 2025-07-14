@@ -66,13 +66,14 @@ func handleCommandLineFlag() {
 }
 
 func handleConnection(conn net.Conn) {
-	defer conn.Close()
-
-	request := parseRequest(conn)
-
-	rep := createResponse(request)
-
-	rep.sendToClient(request)
+	for {
+		request := parseRequest(conn)
+		if request.path == "" {
+			continue
+		}
+		rep := createResponse(request)
+		rep.sendToClient(request)
+	}
 }
 
 func check(e error) {
@@ -101,8 +102,7 @@ func parseRequest(conn net.Conn) request {
 	buffer := make([]byte, 1024)
 	_, err := conn.Read(buffer)
 	if err != nil {
-		fmt.Println("Error reading connection : ")
-		panic(err)
+		return request{}
 	}
 
 	req := string(buffer)
