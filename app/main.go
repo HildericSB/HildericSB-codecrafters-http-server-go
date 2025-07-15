@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -66,13 +67,30 @@ func handleCommandLineFlag() {
 }
 
 func handleConnection(conn net.Conn) {
+	connectionMustBeClosed := false
 	for {
 		request := parseRequest(conn)
-		if request.path == "" {
+
+		// If request is nil, keep the connection open and wait for client input
+		if request == nil {
 			continue
 		}
-		rep := createResponse(request)
-		rep.sendToClient(request)
+
+		if request.headers["Connection"] == "close" {
+			connectionMustBeClosed = true
+		}
+
+		rep := createResponse(*request)
+
+		if connectionMustBeClosed {
+			rep.headers["Connection"] = "close"
+		}
+		rep.sendToClient(*request)
+
+		if connectionMustBeClosed {
+			conn.Close()
+			break
+		}
 	}
 }
 
@@ -96,13 +114,17 @@ func handleFileUpload(req request) response {
 	}
 }
 
-func parseRequest(conn net.Conn) request {
+func parseRequest(conn net.Conn) *request {
 
 	// Create a buffer and read the HTTP request from connection
 	buffer := make([]byte, 1024)
 	_, err := conn.Read(buffer)
 	if err != nil {
-		return request{}
+		if err != io.EOF {
+			fmt.Println("Error reading client request from connection")
+			panic(err)
+		}
+		return nil
 	}
 
 	req := string(buffer)
@@ -135,11 +157,13 @@ func parseRequest(conn net.Conn) request {
 
 	request.headers = headers
 
-	return request
+	return &request
 }
 
 func createResponse(request request) response {
-	var rep response
+	rep := response{
+		headers: make(map[string]string),
+	}
 
 	pathSplit := strings.Split(request.path, "/")
 	pathSplitLength := len(pathSplit)
@@ -280,7 +304,7 @@ func (r *response) sendToClient(request request) {
 
 	rep = rep + CRLF + body
 
-	fmt.Println("HTTP reponse : \n" + rep)
+	fmt.Println("\n HTTP reponse : \n" + rep)
 
 	r.connection.Write([]byte(rep))
 }
