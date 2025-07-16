@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,7 +16,12 @@ import (
 
 var FILE_DIRECTORY = "/tmp/"
 
-const CRLF = "\r\n"
+const (
+	CRLF             = "\r\n"
+	DEFAULT_PORT     = "4221"
+	BUFFER_SIZE      = 4096
+	DEFAULT_FILE_DIR = "/tmp/"
+)
 
 type request struct {
 	path       string
@@ -36,11 +42,12 @@ func main() {
 
 	handleCommandLineFlag()
 
-	// Create TCP listener on 4221
-	listener, err := net.Listen("tcp", "0.0.0.0:4221")
+	port := DEFAULT_PORT
+	// Create TCP listener
+	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
-		fmt.Println("Failed to bind to port 4221")
-		panic(err)
+		fmt.Println("Failed to bind to port ", port)
+		return
 	}
 	defer listener.Close()
 
@@ -51,6 +58,7 @@ func main() {
 		conn, err := listener.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
+			continue
 		}
 
 		go handleConnection(conn)
@@ -69,6 +77,7 @@ func handleConnection(conn net.Conn) {
 		request, err := parseRequest(conn)
 		if err != nil {
 			fmt.Println("Error parsing request : ", err)
+			break
 		}
 
 		// If request is nil, keep the connection open and wait for client input
@@ -76,7 +85,7 @@ func handleConnection(conn net.Conn) {
 			continue
 		}
 
-		response := createResponse(*request)
+		response := createResponse(request)
 		response.sendToClient(request)
 
 		if request.headers["Connection"] == "close" {
@@ -91,18 +100,30 @@ func check(e error) {
 	}
 }
 
-func handleFileUpload(req request) response {
-	i, err := strconv.Atoi(req.headers["Content-Length"])
-	check(err)
-
-	fileData := req.body[:i]
-
-	err = os.WriteFile(FILE_DIRECTORY+filepath.Base(req.path), []byte(fileData), 0666)
-	check(err)
-
-	return response{
-		statusCode: 201,
+func handleFileUpload(request *request, response *response) {
+	contentLength, err := strconv.Atoi(request.headers["Content-Length"])
+	if err != nil {
+		response.statusCode = http.StatusBadRequest
+		return
 	}
+
+	if len(request.body) < contentLength {
+		response.statusCode = http.StatusBadRequest
+		return
+	}
+
+	fileName := filepath.Base(request.path)
+	filePath := filepath.Join(FILE_DIRECTORY, fileName)
+	fileData := request.body[:contentLength]
+
+	err = os.WriteFile(filePath, []byte(fileData), 0666)
+	if err != nil {
+		fmt.Printf("Error writing file %s: %v\n", filePath, err)
+		response.statusCode = http.StatusInternalServerError
+		return
+	}
+
+	response.statusCode = http.StatusCreated
 }
 
 func parseRequest(conn net.Conn) (*request, error) {
@@ -151,8 +172,11 @@ func parseRequest(conn net.Conn) (*request, error) {
 	return &request, nil
 }
 
-func createResponse(request request) response {
-	var response response
+func createResponse(request *request) response {
+	response := response{
+		headers: map[string]string{},
+	}
+
 	pathSplit := strings.Split(request.path, "/")
 	pathSplitLength := len(pathSplit)
 
@@ -161,16 +185,16 @@ func createResponse(request request) response {
 	} else if pathSplitLength >= 2 {
 		switch pathSplit[1] {
 		case "echo":
-			response = handleEcho(request)
+			handleEcho(request, &response)
 		case "user-agent":
-			response = handleUserAgent(request)
+			handleUserAgent(request, &response)
 		case "files":
 			if request.method == "GET" {
-				response = handleFileRead(request)
+				handleFileRead(request, &response)
 			}
 
 			if request.method == "POST" {
-				response = handleFileUpload(request)
+				handleFileUpload(request, &response)
 			}
 		}
 
@@ -189,71 +213,46 @@ func createResponse(request request) response {
 	return response
 }
 
-func handleFileRead(request request) response {
+func handleFileRead(request *request, response *response) {
 	pathsplit := strings.Split(request.path, "/")
 
 	if len(pathsplit) < 3 {
-		fmt.Println("Not enough arg in url for file reading")
-		return badRequest400Reponse()
+		response.statusCode = http.StatusBadRequest
+		return
 	}
 
-	fileContent, err := os.ReadFile(FILE_DIRECTORY + pathsplit[2])
+	content, err := os.ReadFile(FILE_DIRECTORY + pathsplit[2])
 	if err != nil {
 		fmt.Println("Error reading file ", FILE_DIRECTORY+pathsplit[2], err)
-		return notFound404Reponse()
+		response.statusCode = http.StatusNotFound
+		return
 	}
 
-	return response{
-		statusCode: 200,
-		headers: map[string]string{
-			"Content-Type":   "application/octet-stream",
-			"Content-Length": strconv.Itoa(len(fileContent)),
-		},
-		body: string(fileContent),
-	}
+	response.statusCode = http.StatusOK
+	response.headers["Content-Type"] = "application/octet-stream"
+	response.headers["Content-Length"] = strconv.Itoa(len(content))
+	response.body = string(content)
 }
 
-func handleEcho(request request) response {
+func handleEcho(request *request, response *response) {
 	body := strings.TrimPrefix(request.path, "/echo/")
-	return response{
-		statusCode: 200,
-		headers: map[string]string{
-			"Content-Type":   "text/plain",
-			"Content-Length": strconv.Itoa(len(body)),
-		},
-		body: body,
-	}
+	response.statusCode = http.StatusOK
+	response.headers["Content-Type"] = "text/plain"
+	response.headers["Content-Length"] = strconv.Itoa(len(body))
+	response.body = body
 }
 
-func handleUserAgent(request request) response {
-	userAgentHeader := request.headers["User-Agent"]
-	if userAgentHeader == "" {
-		fmt.Println("Error : No user-agent headers")
-		return response{
-			statusCode: 300,
-		}
+func handleUserAgent(request *request, response *response) {
+	userAgent := request.headers["User-Agent"]
+	if userAgent == "" {
+		response.statusCode = http.StatusBadRequest
+		return
 	}
 
-	return response{
-		statusCode: 200,
-		headers: map[string]string{
-			"Content-Type":   "text/plain",
-			"Content-Length": strconv.Itoa(len(userAgentHeader)),
-		},
-		body: userAgentHeader,
-	}
-}
-
-func notFound404Reponse() response {
-	return response{
-		statusCode: 404,
-	}
-}
-
-func badRequest400Reponse() response {
-	return response{
-		statusCode: 400,
-	}
+	response.statusCode = http.StatusOK
+	response.headers["Content-Type"] = "text/plain"
+	response.headers["Content-Length"] = strconv.Itoa(len(userAgent))
+	response.body = userAgent
 }
 
 func (r *response) sendToClient(request *request) error {
