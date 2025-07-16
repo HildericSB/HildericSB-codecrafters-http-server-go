@@ -13,10 +13,6 @@ import (
 	"strings"
 )
 
-// Ensures gofmt doesn't remove the "net" and "os" imports above (feel free to remove this!)
-var _ = net.Listen
-var _ = os.Exit
-
 var FILE_DIRECTORY = "/tmp/"
 
 const CRLF = "\r\n"
@@ -67,28 +63,23 @@ func handleCommandLineFlag() {
 }
 
 func handleConnection(conn net.Conn) {
-	connectionMustBeClosed := false
+	defer conn.Close()
+
 	for {
-		request := parseRequest(conn)
+		request, err := parseRequest(conn)
+		if err != nil {
+			fmt.Println("Error parsing request : ", err)
+		}
 
 		// If request is nil, keep the connection open and wait for client input
 		if request == nil {
 			continue
 		}
 
+		response := createResponse(*request)
+		response.sendToClient(request)
+
 		if request.headers["Connection"] == "close" {
-			connectionMustBeClosed = true
-		}
-
-		rep := createResponse(*request)
-
-		if connectionMustBeClosed {
-			rep.headers["Connection"] = "close"
-		}
-		rep.sendToClient(*request)
-
-		if connectionMustBeClosed {
-			conn.Close()
 			break
 		}
 	}
@@ -114,7 +105,7 @@ func handleFileUpload(req request) response {
 	}
 }
 
-func parseRequest(conn net.Conn) *request {
+func parseRequest(conn net.Conn) (*request, error) {
 
 	// Create a buffer and read the HTTP request from connection
 	buffer := make([]byte, 1024)
@@ -122,9 +113,9 @@ func parseRequest(conn net.Conn) *request {
 	if err != nil {
 		if err != io.EOF {
 			fmt.Println("Error reading client request from connection")
-			panic(err)
+			return nil, err
 		}
-		return nil
+		return nil, nil
 	}
 
 	req := string(buffer)
@@ -157,44 +148,45 @@ func parseRequest(conn net.Conn) *request {
 
 	request.headers = headers
 
-	return &request
+	return &request, nil
 }
 
 func createResponse(request request) response {
-	rep := response{
-		headers: make(map[string]string),
-	}
-
+	var response response
 	pathSplit := strings.Split(request.path, "/")
 	pathSplitLength := len(pathSplit)
 
 	if request.path == "/" {
-		rep.statusCode = 200
+		response.statusCode = 200
 	} else if pathSplitLength >= 2 {
 		switch pathSplit[1] {
 		case "echo":
-			rep = handleEcho(request)
+			response = handleEcho(request)
 		case "user-agent":
-			rep = handleUserAgent(request)
+			response = handleUserAgent(request)
 		case "files":
 			if request.method == "GET" {
-				rep = handleFileRead(request)
+				response = handleFileRead(request)
 			}
 
 			if request.method == "POST" {
-				rep = handleFileUpload(request)
+				response = handleFileUpload(request)
 			}
 		}
 
 	}
 
-	if rep.statusCode == 0 {
-		rep.statusCode = 404
+	if request.headers["Connection"] == "close" {
+		response.headers["Connection"] = "close"
 	}
 
-	rep.connection = request.connection
+	if response.statusCode == 0 {
+		response.statusCode = 404
+	}
 
-	return rep
+	response.connection = request.connection
+
+	return response
 }
 
 func handleFileRead(request request) response {
@@ -264,7 +256,7 @@ func badRequest400Reponse() response {
 	}
 }
 
-func (r *response) sendToClient(request request) {
+func (r *response) sendToClient(request *request) error {
 	body := r.body
 	encodings := request.headers["Accept-Encoding"]
 
@@ -306,5 +298,11 @@ func (r *response) sendToClient(request request) {
 
 	fmt.Println("\n HTTP reponse : \n" + rep)
 
-	r.connection.Write([]byte(rep))
+	_, err := r.connection.Write([]byte(rep))
+	if err != nil {
+		fmt.Println("Error writing http response to client ", err)
+		return err
+	}
+
+	return nil
 }
