@@ -42,8 +42,8 @@ func main() {
 
 	handleCommandLineFlag()
 
-	port := DEFAULT_PORT
 	// Create TCP listener
+	port := DEFAULT_PORT
 	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
 		fmt.Println("Failed to bind to port ", port)
@@ -94,42 +94,10 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
-}
-
-func handleFileUpload(request *request, response *response) {
-	contentLength, err := strconv.Atoi(request.headers["Content-Length"])
-	if err != nil {
-		response.statusCode = http.StatusBadRequest
-		return
-	}
-
-	if len(request.body) < contentLength {
-		response.statusCode = http.StatusBadRequest
-		return
-	}
-
-	fileName := filepath.Base(request.path)
-	filePath := filepath.Join(FILE_DIRECTORY, fileName)
-	fileData := request.body[:contentLength]
-
-	err = os.WriteFile(filePath, []byte(fileData), 0666)
-	if err != nil {
-		fmt.Printf("Error writing file %s: %v\n", filePath, err)
-		response.statusCode = http.StatusInternalServerError
-		return
-	}
-
-	response.statusCode = http.StatusCreated
-}
-
 func parseRequest(conn net.Conn) (*request, error) {
 
 	// Create a buffer and read the HTTP request from connection
-	buffer := make([]byte, 1024)
+	buffer := make([]byte, BUFFER_SIZE)
 	_, err := conn.Read(buffer)
 	if err != nil {
 		if err != io.EOF {
@@ -213,6 +181,84 @@ func createResponse(request *request) response {
 	return response
 }
 
+func (r *response) sendToClient(request *request) error {
+	var statusMessage string
+	switch r.statusCode {
+	case 404:
+		statusMessage = "Not Found"
+	case 201:
+		statusMessage = "Created"
+	case 400:
+		statusMessage = "Bad request"
+	case 200:
+		statusMessage = "OK"
+	default:
+		panic("HTTP statusCode unknown")
+	}
+
+	body := r.body
+	encodings := request.headers["Accept-Encoding"]
+
+	if strings.Contains(encodings, "gzip") {
+		r.headers["Content-Encoding"] = "gzip"
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		_, err := zw.Write([]byte(body))
+		if err != nil {
+			fmt.Println("Error encoding the body")
+		}
+		err = zw.Close()
+		if err != nil {
+			return err
+		}
+
+		body = buf.String()
+		r.headers["Content-Length"] = strconv.Itoa(len(body))
+	}
+
+	rep := "HTTP/1.1 " + strconv.Itoa(r.statusCode) + " " + statusMessage + CRLF
+	for k, v := range r.headers {
+		rep = rep + k + ":" + v + CRLF
+	}
+
+	rep = rep + CRLF + body
+
+	fmt.Println("\n HTTP reponse : \n" + rep)
+
+	_, err := r.connection.Write([]byte(rep))
+	if err != nil {
+		fmt.Println("Error writing http response to client ", err)
+		return err
+	}
+
+	return nil
+}
+
+func handleFileUpload(request *request, response *response) {
+	contentLength, err := strconv.Atoi(request.headers["Content-Length"])
+	if err != nil {
+		response.statusCode = http.StatusBadRequest
+		return
+	}
+
+	if len(request.body) < contentLength {
+		response.statusCode = http.StatusBadRequest
+		return
+	}
+
+	fileName := filepath.Base(request.path)
+	filePath := filepath.Join(FILE_DIRECTORY, fileName)
+	fileData := request.body[:contentLength]
+
+	err = os.WriteFile(filePath, []byte(fileData), 0666)
+	if err != nil {
+		fmt.Printf("Error writing file %s: %v\n", filePath, err)
+		response.statusCode = http.StatusInternalServerError
+		return
+	}
+
+	response.statusCode = http.StatusCreated
+}
 func handleFileRead(request *request, response *response) {
 	pathsplit := strings.Split(request.path, "/")
 
@@ -253,55 +299,4 @@ func handleUserAgent(request *request, response *response) {
 	response.headers["Content-Type"] = "text/plain"
 	response.headers["Content-Length"] = strconv.Itoa(len(userAgent))
 	response.body = userAgent
-}
-
-func (r *response) sendToClient(request *request) error {
-	body := r.body
-	encodings := request.headers["Accept-Encoding"]
-
-	if strings.Contains(encodings, "gzip") {
-		r.headers["Content-Encoding"] = "gzip"
-		var buf bytes.Buffer
-		zw := gzip.NewWriter(&buf)
-		_, err := zw.Write([]byte(body))
-		if err != nil {
-			fmt.Println("Error encoding the body")
-		}
-		err = zw.Close()
-		check(err)
-
-		body = buf.String()
-		r.headers["Content-Length"] = strconv.Itoa(len(body))
-	}
-
-	var statusMessage string
-	switch r.statusCode {
-	case 404:
-		statusMessage = "Not Found"
-	case 201:
-		statusMessage = "Created"
-	case 400:
-		statusMessage = "Bad request"
-	case 200:
-		statusMessage = "OK"
-	default:
-		panic("HTTP statusCode unknown")
-	}
-
-	rep := "HTTP/1.1 " + strconv.Itoa(r.statusCode) + " " + statusMessage + CRLF
-	for k, v := range r.headers {
-		rep = rep + k + ":" + v + CRLF
-	}
-
-	rep = rep + CRLF + body
-
-	fmt.Println("\n HTTP reponse : \n" + rep)
-
-	_, err := r.connection.Write([]byte(rep))
-	if err != nil {
-		fmt.Println("Error writing http response to client ", err)
-		return err
-	}
-
-	return nil
 }
