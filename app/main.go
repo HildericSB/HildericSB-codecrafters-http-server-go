@@ -38,20 +38,33 @@ type response struct {
 	connection net.Conn
 }
 
-func main() {
+type Server struct {
+	port     string
+	fileDir  string
+	listener net.Listener
+}
 
-	handleCommandLineFlag()
-
+func NewServer(port string) (*Server, error) {
 	// Create TCP listener
-	port := DEFAULT_PORT
-	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
-	if err != nil {
-		fmt.Println("Failed to bind to port ", port)
-		return
+	if port == "" {
+		port = DEFAULT_PORT
 	}
-	defer listener.Close()
 
-	fmt.Println("Server listening on :4221")
+	return &Server{
+		port: port,
+	}, nil
+}
+
+func (s *Server) Start() error {
+	listener, err := net.Listen("tcp", "0.0.0.0:"+s.port)
+	if err != nil {
+		fmt.Println("Failed to bind to port ", s.port)
+		return err
+	}
+
+	s.listener = listener
+
+	fmt.Println("Server listening on :", s.port)
 
 	// Listen for new connections
 	for {
@@ -63,6 +76,27 @@ func main() {
 
 		go handleConnection(conn)
 	}
+}
+
+func (s *Server) Stop() {
+	s.listener.Close()
+}
+
+func main() {
+	handleCommandLineFlag()
+
+	server, err := NewServer("4221")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	err = server.Start()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 }
 
 func handleCommandLineFlag() {
