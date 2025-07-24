@@ -6,7 +6,9 @@ import (
 	"net"
 
 	"github.com/codecrafters-io/http-server-starter-go/config"
+	"github.com/codecrafters-io/http-server-starter-go/handler"
 	"github.com/codecrafters-io/http-server-starter-go/http"
+	"github.com/codecrafters-io/http-server-starter-go/router"
 )
 
 var FILE_DIRECTORY = "/tmp/"
@@ -15,6 +17,7 @@ type Server struct {
 	port     string
 	fileDir  string
 	listener net.Listener
+	router   *router.Router
 }
 
 func NewServer(port string) (*Server, error) {
@@ -22,6 +25,11 @@ func NewServer(port string) (*Server, error) {
 	if port == "" {
 		port = config.DEFAULT_PORT
 	}
+
+	router := router.NewRouter()
+	router.Handle("/files", handler.HandleFile)
+	router.Handle("/echo", handler.HandleEcho)
+	router.Handle("/user-agent", handler.HandleUserAgent)
 
 	return &Server{
 		port: port,
@@ -47,7 +55,7 @@ func (s *Server) Start() error {
 			continue
 		}
 
-		go handleConnection(conn)
+		go s.handleConnection(conn)
 	}
 }
 
@@ -77,7 +85,7 @@ func handleCommandLineFlag() {
 	flag.Parse()
 }
 
-func handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	for {
@@ -93,6 +101,9 @@ func handleConnection(conn net.Conn) {
 		}
 
 		response := http.NewResponse(request)
+
+		s.router.ServeHTTP(request, response)
+
 		response.SendToClient(request)
 
 		if request.Headers["Connection"] == "close" {

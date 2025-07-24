@@ -23,35 +23,8 @@ func NewResponse(request *Request) *Response {
 		Headers: map[string]string{},
 	}
 
-	pathSplit := strings.Split(request.Path, "/")
-	pathSplitLength := len(pathSplit)
-
-	if request.Path == "/" {
-		response.StatusCode = 200
-	} else if pathSplitLength >= 2 {
-		switch pathSplit[1] {
-		case "echo":
-			HandleEcho(request, response)
-		case "user-agent":
-			HandleUserAgent(request, response)
-		case "files":
-			if request.Method == "GET" {
-				HandleFileRead(request, response)
-			}
-
-			if request.Method == "POST" {
-				HandleFileUpload(request, response)
-			}
-		}
-
-	}
-
 	if request.Headers["Connection"] == "close" {
 		response.Headers["Connection"] = "close"
-	}
-
-	if response.StatusCode == 0 {
-		response.StatusCode = 404
 	}
 
 	response.Connection = request.Connection

@@ -1,4 +1,4 @@
-package http
+package handler
 
 import (
 	"fmt"
@@ -8,9 +8,18 @@ import (
 	"strings"
 
 	"github.com/codecrafters-io/http-server-starter-go/config"
+	"github.com/codecrafters-io/http-server-starter-go/http"
 )
 
-func HandleFileUpload(request *Request, response *Response) {
+func HandleFile(request *http.Request, response *http.Response) {
+	if request.Method == "GET" {
+		HandleFileRead(request, response)
+	} else {
+		HandleFileUpload(request, response)
+	}
+}
+
+func HandleFileUpload(request *http.Request, response *http.Response) {
 	contentLength, err := strconv.Atoi(request.Headers["Content-Length"])
 	if err != nil {
 		response.StatusCode = 400
@@ -35,7 +44,7 @@ func HandleFileUpload(request *Request, response *Response) {
 
 	response.StatusCode = 201
 }
-func HandleFileRead(request *Request, response *Response) {
+func HandleFileRead(request *http.Request, response *http.Response) {
 	pathsplit := strings.Split(request.Path, "/")
 
 	if len(pathsplit) < 3 {
@@ -56,7 +65,7 @@ func HandleFileRead(request *Request, response *Response) {
 	response.Body = string(content)
 }
 
-func HandleEcho(request *Request, response *Response) {
+func HandleEcho(request *http.Request, response *http.Response) {
 	body := strings.TrimPrefix(request.Path, "/echo/")
 	response.StatusCode = 200
 	response.Headers["Content-Type"] = "text/plain"
@@ -64,7 +73,7 @@ func HandleEcho(request *Request, response *Response) {
 	response.Body = body
 }
 
-func HandleUserAgent(request *Request, response *Response) {
+func HandleUserAgent(request *http.Request, response *http.Response) {
 	userAgent := request.Headers["User-Agent"]
 	if userAgent == "" {
 		response.StatusCode = 400
