@@ -11,7 +11,7 @@ import (
 	"github.com/codecrafters-io/http-server-starter-go/router"
 )
 
-var FILE_DIRECTORY = "/tmp/"
+var FILE_DIRECTORY = config.DEFAULT_FILE_DIR
 
 type Server struct {
 	port     string
@@ -27,12 +27,15 @@ func NewServer(port string) (*Server, error) {
 	}
 
 	router := router.NewRouter()
-	router.Handle("/files", handler.HandleFile)
+	router.Handle("/files", func(req *http.Request, resp *http.Response) {
+		handler.HandleFile(req, resp, FILE_DIRECTORY)
+	})
 	router.Handle("/echo", handler.HandleEcho)
 	router.Handle("/user-agent", handler.HandleUserAgent)
 
 	return &Server{
-		port: port,
+		port:    port,
+		fileDir: FILE_DIRECTORY,
 	}, nil
 }
 

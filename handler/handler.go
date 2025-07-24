@@ -7,19 +7,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/codecrafters-io/http-server-starter-go/config"
 	"github.com/codecrafters-io/http-server-starter-go/http"
 )
 
-func HandleFile(request *http.Request, response *http.Response) {
+func HandleFile(request *http.Request, response *http.Response, fileDir string) {
 	if request.Method == "GET" {
-		HandleFileRead(request, response)
+		HandleFileRead(request, response, fileDir)
 	} else {
-		HandleFileUpload(request, response)
+		HandleFileUpload(request, response, fileDir)
 	}
 }
 
-func HandleFileUpload(request *http.Request, response *http.Response) {
+func HandleFileUpload(request *http.Request, response *http.Response, fileDir string) {
 	contentLength, err := strconv.Atoi(request.Headers["Content-Length"])
 	if err != nil {
 		response.StatusCode = 400
@@ -32,7 +31,7 @@ func HandleFileUpload(request *http.Request, response *http.Response) {
 	}
 
 	fileName := filepath.Base(request.Path)
-	filePath := filepath.Join(config.DEFAULT_FILE_DIR, fileName)
+	filePath := filepath.Join(fileDir, fileName)
 	fileData := request.Body[:contentLength]
 
 	err = os.WriteFile(filePath, []byte(fileData), 0666)
@@ -44,7 +43,7 @@ func HandleFileUpload(request *http.Request, response *http.Response) {
 
 	response.StatusCode = 201
 }
-func HandleFileRead(request *http.Request, response *http.Response) {
+func HandleFileRead(request *http.Request, response *http.Response, fileDir string) {
 	pathsplit := strings.Split(request.Path, "/")
 
 	if len(pathsplit) < 3 {
@@ -52,9 +51,9 @@ func HandleFileRead(request *http.Request, response *http.Response) {
 		return
 	}
 
-	content, err := os.ReadFile(config.DEFAULT_FILE_DIR + pathsplit[2])
+	content, err := os.ReadFile(fileDir + pathsplit[2])
 	if err != nil {
-		fmt.Println("Error reading file ", config.DEFAULT_FILE_DIR+pathsplit[2], err)
+		fmt.Println("Error reading file ", fileDir+pathsplit[2], err)
 		response.StatusCode = 404
 		return
 	}
