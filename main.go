@@ -4,10 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/codecrafters-io/http-server-starter-go/config"
 	"github.com/codecrafters-io/http-server-starter-go/http"
@@ -96,119 +92,11 @@ func handleConnection(conn net.Conn) {
 			continue
 		}
 
-		response := NewResponse(request)
+		response := http.NewResponse(request)
 		response.SendToClient(request)
 
 		if request.Headers["Connection"] == "close" {
 			break
 		}
 	}
-}
-
-func HandleFileUpload(request *http.Request, response *http.Response) {
-	contentLength, err := strconv.Atoi(request.Headers["Content-Length"])
-	if err != nil {
-		response.StatusCode = 400
-		return
-	}
-
-	if len(request.Body) < contentLength {
-		response.StatusCode = 400
-		return
-	}
-
-	fileName := filepath.Base(request.Path)
-	filePath := filepath.Join(config.DEFAULT_FILE_DIR, fileName)
-	fileData := request.Body[:contentLength]
-
-	err = os.WriteFile(filePath, []byte(fileData), 0666)
-	if err != nil {
-		fmt.Printf("Error writing file %s: %v\n", filePath, err)
-		response.StatusCode = 500
-		return
-	}
-
-	response.StatusCode = 201
-}
-func HandleFileRead(request *http.Request, response *http.Response) {
-	pathsplit := strings.Split(request.Path, "/")
-
-	if len(pathsplit) < 3 {
-		response.StatusCode = 400
-		return
-	}
-
-	content, err := os.ReadFile(config.DEFAULT_FILE_DIR + pathsplit[2])
-	if err != nil {
-		fmt.Println("Error reading file ", config.DEFAULT_FILE_DIR+pathsplit[2], err)
-		response.StatusCode = 404
-		return
-	}
-
-	response.StatusCode = 200
-	response.Headers["Content-Type"] = "application/octet-stream"
-	response.Headers["Content-Length"] = strconv.Itoa(len(content))
-	response.Body = string(content)
-}
-
-func HandleEcho(request *http.Request, response *http.Response) {
-	body := strings.TrimPrefix(request.Path, "/echo/")
-	response.StatusCode = 200
-	response.Headers["Content-Type"] = "text/plain"
-	response.Headers["Content-Length"] = strconv.Itoa(len(body))
-	response.Body = body
-}
-
-func HandleUserAgent(request *http.Request, response *http.Response) {
-	userAgent := request.Headers["User-Agent"]
-	if userAgent == "" {
-		response.StatusCode = 400
-		return
-	}
-
-	response.StatusCode = 200
-	response.Headers["Content-Type"] = "text/plain"
-	response.Headers["Content-Length"] = strconv.Itoa(len(userAgent))
-	response.Body = userAgent
-}
-
-func NewResponse(request *http.Request) *http.Response {
-	response := &http.Response{
-		Headers: map[string]string{},
-	}
-
-	pathSplit := strings.Split(request.Path, "/")
-	pathSplitLength := len(pathSplit)
-
-	if request.Path == "/" {
-		response.StatusCode = 200
-	} else if pathSplitLength >= 2 {
-		switch pathSplit[1] {
-		case "echo":
-			HandleEcho(request, response)
-		case "user-agent":
-			HandleUserAgent(request, response)
-		case "files":
-			if request.Method == "GET" {
-				HandleFileRead(request, response)
-			}
-
-			if request.Method == "POST" {
-				HandleFileUpload(request, response)
-			}
-		}
-
-	}
-
-	if request.Headers["Connection"] == "close" {
-		response.Headers["Connection"] = "close"
-	}
-
-	if response.StatusCode == 0 {
-		response.StatusCode = 404
-	}
-
-	response.Connection = request.Connection
-
-	return response
 }
