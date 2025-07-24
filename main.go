@@ -4,6 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
+	"os/signal"
+	"time"
 
 	"github.com/codecrafters-io/http-server-starter-go/config"
 	"github.com/codecrafters-io/http-server-starter-go/handler"
@@ -14,10 +17,12 @@ import (
 var FILE_DIRECTORY = config.DEFAULT_FILE_DIR
 
 type Server struct {
-	port     string
-	fileDir  string
-	listener net.Listener
-	router   *router.Router
+	port        string
+	fileDir     string
+	listener    net.Listener
+	router      *router.Router
+	isUp        bool
+	connections map[net.Conn]bool // map for O(1) removal
 }
 
 func NewServer(port string) (*Server, error) {
@@ -32,6 +37,7 @@ func NewServer(port string) (*Server, error) {
 		port:    port,
 		fileDir: FILE_DIRECTORY,
 		router:  router,
+		isUp:    false,
 	}
 
 	router.Handle("/files", func(req *http.Request, resp *http.Response) {
@@ -43,27 +49,56 @@ func NewServer(port string) (*Server, error) {
 	return &server, nil
 }
 
+func (s *Server) gracefulShutdownRoutine() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	<-c
+	fmt.Printf("Shutting down signal gracefully shutting down")
+
+	s.ShutDown()
+}
+
+func (s *Server) ShutDown() {
+	s.isUp = false
+
+	// Wait a bit for current requests to complete
+	time.Sleep(5 * time.Second)
+
+	for conn := range s.connections {
+		conn.Close()
+	}
+
+	s.listener.Close()
+}
+
 func (s *Server) Start() error {
+	s.isUp = true
 	listener, err := net.Listen("tcp", "0.0.0.0:"+s.port)
 	if err != nil {
 		fmt.Println("Failed to bind to port ", s.port)
 		return err
 	}
-
 	s.listener = listener
-
 	fmt.Println("Server listening on :", s.port)
 
+	go s.gracefulShutdownRoutine()
+
 	// Listen for new connections
-	for {
+	for s.isUp {
 		conn, err := listener.Accept()
 		if err != nil {
+			if !s.isUp {
+				// Server is now down, error can happen
+				break
+			}
 			fmt.Println("Error accepting connection: ", err.Error())
 			continue
 		}
 
 		go s.handleConnection(conn)
 	}
+
+	return nil
 }
 
 func (s *Server) Stop() {
@@ -93,7 +128,11 @@ func handleCommandLineFlag() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	s.connections[conn] = true
+	defer func() {
+		conn.Close()
+		delete(s.connections, conn)
+	}()
 
 	for {
 		request, err := http.ParseRequest(conn)
