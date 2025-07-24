@@ -45,15 +45,23 @@ func HandleFileUpload(request *http.Request, response *http.Response, fileDir st
 }
 func HandleFileRead(request *http.Request, response *http.Response, fileDir string) {
 	pathsplit := strings.Split(request.Path, "/")
-
-	if len(pathsplit) < 3 {
+	if len(pathsplit) < 3 || pathsplit[2] == "" {
 		response.StatusCode = 400
 		return
 	}
 
-	content, err := os.ReadFile(fileDir + pathsplit[2])
+	filename := pathsplit[2]
+	// Validate filename to prevent directory traversal
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		response.StatusCode = 400
+		return
+	}
+
+	filePath := filepath.Join(fileDir, filename)
+
+	content, err := os.ReadFile(filePath)
 	if err != nil {
-		fmt.Println("Error reading file ", fileDir+pathsplit[2], err)
+		fmt.Println("Error reading file ", filePath, err)
 		response.StatusCode = 404
 		return
 	}

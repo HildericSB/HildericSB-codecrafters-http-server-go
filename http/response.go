@@ -44,7 +44,7 @@ func (r *Response) SendToClient(request *Request) error {
 	case 200:
 		statusMessage = "OK"
 	default:
-		panic("HTTP statusCode unknown")
+		return fmt.Errorf("unknown status code: %d", r.StatusCode)
 	}
 
 	body := r.Body

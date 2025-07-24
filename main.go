@@ -27,16 +27,20 @@ func NewServer(port string) (*Server, error) {
 	}
 
 	router := router.NewRouter()
+
+	server := Server{
+		port:    port,
+		fileDir: FILE_DIRECTORY,
+		router:  router,
+	}
+
 	router.Handle("/files", func(req *http.Request, resp *http.Response) {
-		handler.HandleFile(req, resp, FILE_DIRECTORY)
+		handler.HandleFile(req, resp, server.fileDir)
 	})
 	router.Handle("/echo", handler.HandleEcho)
 	router.Handle("/user-agent", handler.HandleUserAgent)
 
-	return &Server{
-		port:    port,
-		fileDir: FILE_DIRECTORY,
-	}, nil
+	return &server, nil
 }
 
 func (s *Server) Start() error {

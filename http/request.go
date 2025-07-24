@@ -22,16 +22,22 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 	buffer := make([]byte, config.BUFFER_SIZE)
 	n, err := conn.Read(buffer)
 	if err != nil {
-		if err != io.EOF {
-			fmt.Println("Error reading client request from connection")
-			return nil, err
+		if err == io.EOF {
+			return nil, nil // No more data
 		}
-		// No data from client, so no request, no error
-		return nil, nil
+		return nil, fmt.Errorf("failed to read from connection: %w", err)
+	}
+
+	if n == 0 {
+		return nil, nil // No data received
 	}
 
 	req := string(buffer[:n])
 	lines := strings.Split(req, "\r\n")
+
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("empty request")
+	}
 
 	//Read path and method type
 	request := Request{
