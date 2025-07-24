@@ -20,7 +20,7 @@ type Request struct {
 func ParseRequest(conn net.Conn) (*Request, error) {
 	// Create a buffer and read the HTTP request from connection
 	buffer := make([]byte, config.BUFFER_SIZE)
-	_, err := conn.Read(buffer)
+	n, err := conn.Read(buffer)
 	if err != nil {
 		if err != io.EOF {
 			fmt.Println("Error reading client request from connection")
@@ -30,7 +30,7 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 		return nil, nil
 	}
 
-	req := string(buffer)
+	req := string(buffer[:n])
 	lines := strings.Split(req, "\r\n")
 
 	//Read path and method type
@@ -47,7 +47,7 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 		// If line is empty, there is no more header, next line is the body
 		if line == "" {
 			if len(lines) > i+2 {
-				request.Body = lines[i+2]
+				request.Body = strings.Join(lines[i+2:], "\r\n")
 			}
 			break
 		}

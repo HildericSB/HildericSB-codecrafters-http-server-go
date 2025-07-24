@@ -23,6 +23,7 @@ func (r *Router) Handle(pattern string, handler func(*http.Request, *http.Respon
 func (r *Router) ServeHTTP(request *http.Request, response *http.Response) {
 	if request.Path == "/" {
 		response.StatusCode = 200
+		return
 	}
 
 	for pattern, handler := range r.routes {
