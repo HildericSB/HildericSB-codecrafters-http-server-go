@@ -38,17 +38,13 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 		Path:       strings.Split(lines[0], " ")[1],
 		Method:     strings.Split(lines[0], " ")[0],
 		Connection: conn,
+		Headers:    make(map[string]string),
 	}
 
-	// Read headers and body
-	headers := make(map[string]string)
-
-	for i, line := range lines[1:] {
+	// Parse headers
+	for _, line := range lines[1:] {
 		// If line is empty, there is no more header, next line is the body
 		if line == "" {
-			if len(lines) > i+2 {
-				request.Body = strings.Join(lines[i+2:], "\r\n")
-			}
 			break
 		}
 
@@ -57,11 +53,15 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 			headerSplit[i] = strings.TrimSpace(v)
 		}
 		if len(headerSplit) == 2 {
-			headers[headerSplit[0]] = headerSplit[1]
+			request.Headers[headerSplit[0]] = headerSplit[1]
 		}
 	}
 
-	request.Headers = headers
+	// Read Body
+	bodyStart := strings.Index(req, "\r\n\r\n") + 4
+	if bodyStart < len(req) {
+		request.Body = req[bodyStart:]
+	}
 
 	return &request, nil
 }
