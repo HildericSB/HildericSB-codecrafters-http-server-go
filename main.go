@@ -65,8 +65,9 @@ func (s *Server) gracefulShutdownRoutine() {
 
 func (s *Server) ShutDown() {
 	s.isUp = false
-	s.listener.Close()
-	fmt.Println("\ntest")
+	if s.listener != nil {
+		s.listener.Close()
+	}
 
 	// Wait for all connections to finish with timeout
 	done := make(chan struct{})
@@ -85,9 +86,11 @@ func (s *Server) ShutDown() {
 		s.connMutex.Lock()
 		for conn := range s.connections {
 			conn.Close()
+			delete(s.connections, conn)
 		}
 		s.connMutex.Unlock()
 	}
+
 }
 
 func (s *Server) Start() error {
@@ -156,9 +159,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.connectionWaitGroup.Add(1)
 
 	defer func() {
-		conn.Close()
 		s.connectionWaitGroup.Done()
 		s.connMutex.Lock()
+		conn.Close()
 		delete(s.connections, conn)
 		s.connMutex.Unlock()
 	}()
