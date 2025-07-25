@@ -64,6 +64,9 @@ func (s *Server) gracefulShutdownRoutine() {
 }
 
 func (s *Server) ShutDown() {
+	if !s.isUp {
+		return
+	}
 	s.isUp = false
 	if s.listener != nil {
 		s.listener.Close()
