@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/codecrafters-io/http-server-starter-go/config"
@@ -18,13 +19,14 @@ import (
 var FILE_DIRECTORY = config.DEFAULT_FILE_DIR
 
 type Server struct {
-	port        string
-	fileDir     string
-	listener    net.Listener
-	router      *router.Router
-	isUp        bool
-	connections map[net.Conn]bool // map for O(1) removal
-	connMutex   sync.Mutex
+	port                string
+	fileDir             string
+	listener            net.Listener
+	router              *router.Router
+	isUp                bool
+	connections         map[net.Conn]bool // map for O(1) removal
+	connMutex           sync.Mutex
+	connectionWaitGroup sync.WaitGroup // To track number of running connections
 }
 
 func NewServer(port string) (*Server, error) {
@@ -36,10 +38,11 @@ func NewServer(port string) (*Server, error) {
 	router := router.NewRouter()
 
 	server := Server{
-		port:    port,
-		fileDir: FILE_DIRECTORY,
-		router:  router,
-		isUp:    false,
+		port:        port,
+		fileDir:     FILE_DIRECTORY,
+		router:      router,
+		isUp:        false,
+		connections: make(map[net.Conn]bool),
 	}
 
 	router.Handle("/files", func(req *http.Request, resp *http.Response) {
@@ -53,24 +56,38 @@ func NewServer(port string) (*Server, error) {
 
 func (s *Server) gracefulShutdownRoutine() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
-	fmt.Printf("Shutting down signal gracefully shutting down")
+	fmt.Printf("Shutting down signal gracefully shutting down...\n")
 
 	s.ShutDown()
 }
 
 func (s *Server) ShutDown() {
 	s.isUp = false
-
-	// Wait a bit for current requests to complete
-	time.Sleep(5 * time.Second)
-
-	for conn := range s.connections {
-		conn.Close()
-	}
-
 	s.listener.Close()
+	fmt.Println("\ntest")
+
+	// Wait for all connections to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		s.connectionWaitGroup.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fmt.Println("All connections closed gracefully")
+	case <-time.After(10 * time.Second):
+		fmt.Println("Timer is finished")
+
+		// Force close remaining connections
+		s.connMutex.Lock()
+		for conn := range s.connections {
+			conn.Close()
+		}
+		s.connMutex.Unlock()
+	}
 }
 
 func (s *Server) Start() error {
@@ -90,7 +107,7 @@ func (s *Server) Start() error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if !s.isUp {
-				// Server is now down, error can happen
+				// Server is shutting down, this is expected
 				break
 			}
 			fmt.Println("Error accepting connection: ", err.Error())
@@ -99,6 +116,9 @@ func (s *Server) Start() error {
 
 		go s.handleConnection(conn)
 	}
+
+	// Server is shutting down, wait for active connections to finish
+	s.connectionWaitGroup.Wait()
 
 	return nil
 }
@@ -130,9 +150,14 @@ func handleCommandLineFlag() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	s.connMutex.Lock()
 	s.connections[conn] = true
+	s.connMutex.Unlock()
+	s.connectionWaitGroup.Add(1)
+
 	defer func() {
 		conn.Close()
+		s.connectionWaitGroup.Done()
 		s.connMutex.Lock()
 		delete(s.connections, conn)
 		s.connMutex.Unlock()
