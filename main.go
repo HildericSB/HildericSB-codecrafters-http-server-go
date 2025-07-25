@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"github.com/codecrafters-io/http-server-starter-go/config"
@@ -23,6 +24,7 @@ type Server struct {
 	router      *router.Router
 	isUp        bool
 	connections map[net.Conn]bool // map for O(1) removal
+	connMutex   sync.Mutex
 }
 
 func NewServer(port string) (*Server, error) {
@@ -131,7 +133,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.connections[conn] = true
 	defer func() {
 		conn.Close()
+		s.connMutex.Lock()
 		delete(s.connections, conn)
+		s.connMutex.Unlock()
 	}()
 
 	for {
