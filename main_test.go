@@ -29,7 +29,7 @@ func TestGracefulShutdown_WithActiveConnections(t *testing.T) {
 		connections[i] = conn
 	}
 
-	activeConnections := len(server.connections)
+	activeConnections := server.GetOpenConnections()
 	if activeConnections != numberOfConnections {
 		t.Fatalf("Error number of active connections, activeConnections : %d\n", activeConnections)
 	}

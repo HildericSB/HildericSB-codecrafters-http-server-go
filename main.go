@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,12 +25,12 @@ type Server struct {
 	listener                  net.Listener
 	router                    *router.Router
 	isUp                      bool
-	connections               map[net.Conn]bool // map for O(1) removal
-	connMutex                 sync.Mutex
-	connectionWaitGroup       sync.WaitGroup // To track number of running connections
 	numberOfConnectionsWorker int
 	connectionsChan           chan net.Conn
-	shutdownChan              chan struct{}
+	connectionWaitGroup       sync.WaitGroup
+	openConnections           int64
+
+	shutDownSignal chan struct{}
 }
 
 func NewServer(port string) (*Server, error) {
@@ -45,8 +46,7 @@ func NewServer(port string) (*Server, error) {
 		fileDir:                   FILE_DIRECTORY,
 		router:                    router,
 		isUp:                      false,
-		connections:               make(map[net.Conn]bool),
-		shutdownChan:              make(chan struct{}),
+		shutDownSignal:            make(chan struct{}),
 		connectionsChan:           make(chan net.Conn, 100), // Using buffered chan so if new connections queue up, Accept() continues accepting
 		numberOfConnectionsWorker: 10,
 	}
@@ -70,13 +70,8 @@ func (s *Server) gracefulShutdownRoutine() {
 }
 
 func (s *Server) ShutDown() {
-	if !s.isUp {
-		return
-	}
-	s.isUp = false
-
-	// Signal ShutDown to worker
-	close(s.shutdownChan)
+	// Signal ShutDown to worker and main routine
+	close(s.shutDownSignal)
 
 	if s.listener != nil {
 		s.listener.Close()
@@ -93,15 +88,7 @@ func (s *Server) ShutDown() {
 	case <-done:
 		fmt.Println("All connections closed gracefully")
 	case <-time.After(10 * time.Second):
-		fmt.Println("Timer is finished")
-
-		// Force close remaining connections
-		s.connMutex.Lock()
-		for conn := range s.connections {
-			conn.Close()
-			delete(s.connections, conn)
-		}
-		s.connMutex.Unlock()
+		fmt.Println("Graceful shutdown timeout - some connections may be force-closed")
 	}
 
 }
@@ -123,15 +110,17 @@ func (s *Server) Start() error {
 	}
 
 	// Listen for new connections
-	for s.isUp {
+	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			if !s.isUp {
-				// Server is shutting down, this is expected
-				break
+			select {
+			case <-s.shutDownSignal:
+				fmt.Println("Shutdown signal received, listener probably closed.")
+				return nil
+			default:
+				fmt.Println("Error accepting connection: ", err.Error())
+				continue
 			}
-			fmt.Println("Error accepting connection: ", err.Error())
-			continue
 		}
 
 		select {
@@ -142,13 +131,7 @@ func (s *Server) Start() error {
 			fmt.Println("Worker pool busy, rejecting connection")
 			conn.Close()
 		}
-
 	}
-
-	// Server is shutting down, wait for active connections to finish
-	s.connectionWaitGroup.Wait()
-
-	return nil
 }
 
 func (s *Server) startConnectionHandler(workerID int) {
@@ -157,7 +140,7 @@ func (s *Server) startConnectionHandler(workerID int) {
 		case conn := <-s.connectionsChan:
 			fmt.Printf("Worker %d handling connection\n", workerID)
 			s.handleConnection(conn)
-		case <-s.shutdownChan:
+		case <-s.shutDownSignal:
 			fmt.Printf("Worker %d shutting down\n", workerID)
 			return
 		}
@@ -191,39 +174,44 @@ func handleCommandLineFlag() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
-	s.connMutex.Lock()
-	s.connections[conn] = true
-	s.connMutex.Unlock()
 	s.connectionWaitGroup.Add(1)
-
+	atomic.AddInt64(&s.openConnections, 1)
 	defer func() {
-		s.connectionWaitGroup.Done()
-		s.connMutex.Lock()
 		conn.Close()
-		delete(s.connections, conn)
-		s.connMutex.Unlock()
+		atomic.AddInt64(&s.openConnections, -1)
+		s.connectionWaitGroup.Done()
 	}()
 
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	for {
 		request, err := http.ParseRequest(conn)
 		if err != nil {
-			fmt.Println("Error parsing request : ", err)
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Timeout is normal
+				return
+			}
+			if s.isUp {
+				fmt.Println("Error parsing request : ", err)
+			}
 			break
 		}
 
-		// If request is nil, keep the connection open and wait for client input
-		if request == nil {
-			continue
-		}
+		// Clear read deadline during processing
+		conn.SetDeadline(time.Time{})
 
 		response := http.NewResponse(request)
-
 		s.router.ServeHTTP(request, response)
-
 		response.SendToClient(request)
 
 		if request.Headers["Connection"] == "close" {
 			break
 		}
+
+		// Set keep-alive timeout for next request
+		conn.SetReadDeadline(time.Now().Add(time.Second * 60))
 	}
+}
+
+func (s *Server) GetOpenConnections() int {
+	return int(atomic.LoadInt64(&s.openConnections))
 }
