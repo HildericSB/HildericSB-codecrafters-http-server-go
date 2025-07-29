@@ -19,14 +19,17 @@ import (
 var FILE_DIRECTORY = config.DEFAULT_FILE_DIR
 
 type Server struct {
-	port                string
-	fileDir             string
-	listener            net.Listener
-	router              *router.Router
-	isUp                bool
-	connections         map[net.Conn]bool // map for O(1) removal
-	connMutex           sync.Mutex
-	connectionWaitGroup sync.WaitGroup // To track number of running connections
+	port                      string
+	fileDir                   string
+	listener                  net.Listener
+	router                    *router.Router
+	isUp                      bool
+	connections               map[net.Conn]bool // map for O(1) removal
+	connMutex                 sync.Mutex
+	connectionWaitGroup       sync.WaitGroup // To track number of running connections
+	numberOfConnectionsWorker int
+	connectionsChan           chan net.Conn
+	shutdownChan              chan struct{}
 }
 
 func NewServer(port string) (*Server, error) {
@@ -38,11 +41,14 @@ func NewServer(port string) (*Server, error) {
 	router := router.NewRouter()
 
 	server := Server{
-		port:        port,
-		fileDir:     FILE_DIRECTORY,
-		router:      router,
-		isUp:        false,
-		connections: make(map[net.Conn]bool),
+		port:                      port,
+		fileDir:                   FILE_DIRECTORY,
+		router:                    router,
+		isUp:                      false,
+		connections:               make(map[net.Conn]bool),
+		shutdownChan:              make(chan struct{}),
+		connectionsChan:           make(chan net.Conn, 100), // Using buffered chan so if new connections queue up, Accept() continues accepting
+		numberOfConnectionsWorker: 10,
 	}
 
 	router.Handle("/files", func(req *http.Request, resp *http.Response) {
@@ -68,6 +74,10 @@ func (s *Server) ShutDown() {
 		return
 	}
 	s.isUp = false
+
+	// Signal ShutDown to worker
+	close(s.shutdownChan)
+
 	if s.listener != nil {
 		s.listener.Close()
 	}
@@ -108,6 +118,10 @@ func (s *Server) Start() error {
 
 	go s.gracefulShutdownRoutine()
 
+	for i := range s.numberOfConnectionsWorker {
+		go s.startConnectionHandler(i)
+	}
+
 	// Listen for new connections
 	for s.isUp {
 		conn, err := listener.Accept()
@@ -120,13 +134,34 @@ func (s *Server) Start() error {
 			continue
 		}
 
-		go s.handleConnection(conn)
+		select {
+		case s.connectionsChan <- conn:
+			// Connection sent to worker ppol
+		default:
+			// Channel is full, reject the connection
+			fmt.Println("Worker pool busy, rejecting connection")
+			conn.Close()
+		}
+
 	}
 
 	// Server is shutting down, wait for active connections to finish
 	s.connectionWaitGroup.Wait()
 
 	return nil
+}
+
+func (s *Server) startConnectionHandler(workerID int) {
+	for {
+		select {
+		case conn := <-s.connectionsChan:
+			fmt.Printf("Worker %d handling connection\n", workerID)
+			s.handleConnection(conn)
+		case <-s.shutdownChan:
+			fmt.Printf("Worker %d shutting down\n", workerID)
+			return
+		}
+	}
 }
 
 func (s *Server) Stop() {
