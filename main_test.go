@@ -17,19 +17,21 @@ func TestGracefulShutdown_WithActiveConnections(t *testing.T) {
 	}
 
 	go server.Start()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) //  time for server to start
 
 	port := server.Port
 
 	numberOfConnections := 5
-	connections := make([]net.Conn, numberOfConnections+1)
-	for i := range numberOfConnections + 1 {
+	connections := make([]net.Conn, numberOfConnections)
+	for i := range numberOfConnections {
 		conn, err := net.Dial("tcp", ":"+port)
 		if err != nil {
 			t.Fatalf("Error creating TCP connection \n")
 		}
 		connections[i] = conn
 	}
+
+	time.Sleep(100 * time.Millisecond) //  time for connections to established
 
 	activeConnections := server.GetOpenConnections()
 	if activeConnections != numberOfConnections {
