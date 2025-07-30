@@ -1,6 +1,6 @@
 # Simple HTTP Server in Go
 
-A lightweight HTTP server implementation built from scratch in Go as part of the [CodeCrafters](https://codecrafters.io) "Build Your Own HTTP Server" challenge.
+A lightweight HTTP server implementation built from scratch in Go as part of the [CodeCrafters](https://codecrafters.io) "Build Your Own HTTP Server" challenge. This project serves as Go training by creating a custom web server.
 
 ## 🚀 Features
 
@@ -12,6 +12,7 @@ A lightweight HTTP server implementation built from scratch in Go as part of the
 - **User-Agent Detection** - Endpoint to retrieve client user-agent information
 - **Persistent Connections** - Support for keep-alive connections
 - **Command-Line Configuration** - Configurable file directory via flags
+- **Graceful Shutdown** - Proper server shutdown handling with active connections
 
 ## 📋 Supported Endpoints
 
@@ -26,12 +27,12 @@ A lightweight HTTP server implementation built from scratch in Go as part of the
 ## 🛠️ Installation & Usage
 
 ### Prerequisites
-- Go 1.19 or higher
+- Go 1.24.0 or higher
 
 ### Clone and Run
 ```bash
 git clone <repository-url>
-cd http-server
+cd http-server-starter-go
 go run main.go
 ```
 
@@ -85,11 +86,27 @@ curl -H "Accept-Encoding: gzip" http://localhost:4221/echo/compress-this-text
 
 ### Core Components
 
-- **Connection Handler**: Manages TCP connections and HTTP parsing
+#### `server` Package
+- **Server Manager**: Manages the main TCP server and graceful shutdown
+- **Connection Handler**: Tracks open connections for proper shutdown
+
+#### `http` Package
 - **Request Parser**: Parses incoming HTTP requests into structured data
 - **Response Builder**: Constructs HTTP responses with proper headers
-- **Route Handler**: Dispatches requests to appropriate endpoint handlers
-- **File Manager**: Handles file upload/download operations
+- **Compression Support**: Automatic gzip based on Accept-Encoding headers
+
+#### `router` Package
+- **HTTP Router**: Dispatches requests to appropriate handlers
+- **Pattern Matching**: Support for prefix-based route matching
+
+#### `handler` Package
+- **Handler Interface**: Common interface for all request handlers
+- **EchoHandler**: Handles `/echo/*` endpoints
+- **FileHandler**: Handles file operations (`/files/*`)
+- **UserAgentHandler**: Handles `/user-agent` endpoint
+
+#### `config` Package
+- **Configuration**: Server constants and default configuration
 
 ### Request Flow
 1. TCP connection established
@@ -120,9 +137,36 @@ curl -H "Accept-Encoding: gzip" http://localhost:4221/echo/compress-this-text
 - Proper error responses for malformed requests
 - File operation error handling
 - Connection error recovery
+- File name validation to prevent directory traversal
 
+### Security
+- Directory traversal protection in file handlers
+- Content-Length header validation
+- Safe file path handling
 
 ## 🧪 Testing
+
+The project includes comprehensive unit tests for core components:
+
+### HTTP Tests
+```bash
+go test ./http/...
+```
+- Request parsing tests with various cases (empty body, multiple headers, etc.)
+- Response building tests
+
+### Router Tests
+```bash
+go test ./router/...
+```
+- Route matching tests for different patterns
+- 404 handling for unregistered routes
+
+### Integration Tests
+```bash
+go test ./...
+```
+- Graceful shutdown tests with active connections
 
 ### Manual Testing
 ```bash
@@ -135,6 +179,40 @@ curl -X POST -d "Hello World" http://localhost:4221/files/test.txt
 curl http://localhost:4221/files/test.txt
 ```
 
+## 📊 Project Structure
+
+```
+├── main.go                    # Main entry point
+├── config/
+│   └── config.go             # Configuration and constants
+├── server/
+│   └── server.go             # Main server logic
+├── http/
+│   ├── request.go            # HTTP request parsing
+│   ├── response.go           # HTTP response building
+│   ├── request_test.go       # Request parser tests
+│   └── response_test.go      # Response builder tests
+├── router/
+│   ├── router.go             # Routing logic
+│   └── router_test.go        # Router tests
+└── handler/
+    ├── handler.go            # Handler interface
+    ├── echo_handler.go       # Handler for /echo/*
+    ├── file_handler.go       # Handler for /files/*
+    └── user_agent_handler.go # Handler for /user-agent
+```
+
+## 🎯 Learning Objectives
+
+This project provides hands-on training with:
+- **Low-level networking concepts** with TCP connections
+- **HTTP protocol** understanding and request/response parsing
+- **Go concurrency** with goroutines
+- **Modular architecture** with separation of concerns
+- **Unit and integration testing**
+- **Robust error handling**
+- **Security considerations** with input validation
+
 ## 🔮 Future Enhancements
 
 - [ ] HTTPS/TLS support
@@ -145,8 +223,13 @@ curl http://localhost:4221/files/test.txt
 - [ ] Request rate limiting
 - [ ] Static file serving with caching
 - [ ] WebSocket support
+- [ ] Authentication and authorization
+- [ ] Built-in HTML templating
 
 ## 📄 License
 
 This project is part of a coding challenge and is intended for educational purposes.
 
+---
+
+**Note:** This server is designed for learning purposes and should not be used in production without additional security and performance improvements.
