@@ -6,10 +6,12 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/codecrafters-io/http-server-starter-go/server"
 )
 
 func TestGracefulShutdown_WithActiveConnections(t *testing.T) {
-	server, err := NewServer("5244")
+	server, err := server.NewServerWithDefaults()
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -17,7 +19,7 @@ func TestGracefulShutdown_WithActiveConnections(t *testing.T) {
 	go server.Start()
 	time.Sleep(100 * time.Millisecond)
 
-	port := server.port
+	port := server.Port
 
 	numberOfConnections := 5
 	connections := make([]net.Conn, numberOfConnections+1)

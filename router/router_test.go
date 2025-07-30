@@ -3,6 +3,7 @@ package router
 import (
 	"testing"
 
+	"github.com/codecrafters-io/http-server-starter-go/handler"
 	"github.com/codecrafters-io/http-server-starter-go/http"
 )
 
@@ -21,10 +22,10 @@ func TestRouterServeHTTP_RootPath(t *testing.T) {
 func TestRouterServeHTTP_RegisteredRoute(t *testing.T) {
 	r := NewRouter()
 	handlerCalled := false
-	r.Handle("/echo", func(req *http.Request, res *http.Response) {
+	r.Handle("/echo", handler.HandlerFunc(func(req *http.Request, res *http.Response) {
 		handlerCalled = true
 		res.StatusCode = 201
-	})
+	}))
 	request := &http.Request{Path: "/echo/hello", Headers: map[string]string{}}
 	response := &http.Response{Headers: map[string]string{}}
 
