@@ -9,12 +9,12 @@ import (
 )
 
 type HealthHandler struct {
-	serverStartTime *time.Time
+	metrics ServerMetrics
 }
 
-func NewHealthHandler(ssT *time.Time) *HealthHandler {
+func NewHealthHandler(metrics ServerMetrics) *HealthHandler {
 	return &HealthHandler{
-		serverStartTime: ssT,
+		metrics: metrics,
 	}
 }
 
@@ -25,8 +25,14 @@ func (eh *HealthHandler) Handle(req *http.Request, resp *http.Response) {
 		"status": "healthy",
 		"timestamp": "%v",
 		"uptime": "%v",
-	}
-	`, time.Now().Format(time.RFC1123), time.Since(*eh.serverStartTime))
+		"active connections": "%v",
+		"total_requests": "%v",
+	}`,
+		time.Now().Format(time.RFC1123),
+		time.Since(eh.metrics.ServerStartTime()),
+		eh.metrics.GetOpenConnections(),
+		eh.metrics.GetTotalRequests(),
+	)
 
 	resp.Headers["Content-Type"] = "application/json"
 	resp.Headers["Content-Length"] = strconv.Itoa(len(resp.Body))

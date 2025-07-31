@@ -28,6 +28,7 @@ type Server struct {
 	connectionsChan           chan net.Conn
 	connectionWaitGroup       sync.WaitGroup
 	openConnections           int64
+	totalRequests             int64
 	shutDownSignal            chan struct{}
 }
 
@@ -55,7 +56,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	router.Handle("/files", handler.NewFileHandler(server.fileDir))
 	router.Handle("/echo", handler.NewEchoHandler())
 	router.Handle("/user-agent", handler.NewUserAgentHandler())
-	router.Handle("/health", handler.NewHealthHandler(&server.startTime))
+	router.Handle("/health", handler.NewHealthHandler(&server))
 
 	return &server, nil
 }
@@ -175,6 +176,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		}
 
+		// Increment total requests counter
+		atomic.AddInt64(&s.totalRequests, 1)
+
 		// Clear read deadline during processing
 		conn.SetDeadline(time.Time{})
 
@@ -193,4 +197,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 func (s *Server) GetOpenConnections() int {
 	return int(atomic.LoadInt64(&s.openConnections))
+}
+
+func (s *Server) GetTotalRequests() int {
+	return int(atomic.LoadInt64(&s.totalRequests))
+}
+
+func (s *Server) ServerStartTime() time.Time {
+	return s.startTime
 }
