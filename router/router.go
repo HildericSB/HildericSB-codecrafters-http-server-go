@@ -5,10 +5,12 @@ import (
 
 	"github.com/codecrafters-io/http-server-starter-go/handler"
 	"github.com/codecrafters-io/http-server-starter-go/http"
+	"github.com/codecrafters-io/http-server-starter-go/middleware"
 )
 
 type Router struct {
-	routes map[string]handler.Handler
+	routes      map[string]handler.Handler
+	middlewares []middleware.Middleware
 }
 
 func NewRouter() *Router {
@@ -27,12 +29,24 @@ func (r *Router) ServeHTTP(request *http.Request, response *http.Response) {
 		return
 	}
 
+	pathFound := false
 	for pattern, handler := range r.routes {
 		if strings.HasPrefix(request.Path, pattern+"/") || request.Path == pattern {
 			handler.Handle(request, response)
-			return
+			pathFound = true
+			break
 		}
 	}
 
-	response.StatusCode = 404
+	if !pathFound {
+		response.StatusCode = 404
+	}
+
+	for _, middleware := range r.middlewares {
+		middleware(request, response)
+	}
+}
+
+func (r *Router) Use(middlewares ...middleware.Middleware) {
+	r.middlewares = middlewares
 }

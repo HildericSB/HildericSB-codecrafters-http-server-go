@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/codecrafters-io/http-server-starter-go/config"
 	"github.com/codecrafters-io/http-server-starter-go/handler"
 	"github.com/codecrafters-io/http-server-starter-go/http"
+	"github.com/codecrafters-io/http-server-starter-go/middleware"
 	"github.com/codecrafters-io/http-server-starter-go/router"
 )
 
@@ -21,7 +23,6 @@ type Server struct {
 	fileDir                   string
 	listener                  net.Listener
 	router                    *router.Router
-	isUp                      bool
 	numberOfConnectionsWorker int
 	connectionsChan           chan net.Conn
 	connectionWaitGroup       sync.WaitGroup
@@ -37,11 +38,14 @@ func NewServerWithDefaults() (*Server, error) {
 func NewServer(cfg *config.Config) (*Server, error) {
 	router := router.NewRouter()
 
+	router.Use(
+		middleware.GzipMiddleware(),
+	)
+
 	server := Server{
 		Port:                      cfg.Port,
 		fileDir:                   cfg.FileDir,
 		router:                    router,
-		isUp:                      false,
 		shutDownSignal:            make(chan struct{}),
 		connectionsChan:           make(chan net.Conn, 100), // Using buffered chan so if new connections queue up, Accept() continues accepting
 		numberOfConnectionsWorker: 10,
@@ -88,7 +92,6 @@ func (s *Server) gracefulShutdownRoutine() {
 }
 
 func (s *Server) Start() error {
-	s.isUp = true
 	listener, err := net.Listen("tcp", "0.0.0.0:"+s.Port)
 	if err != nil {
 		fmt.Println("Failed to bind to port ", s.Port)
@@ -158,14 +161,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 	for {
 		request, err := http.ParseRequest(conn)
 		if err != nil {
+			if err == io.EOF {
+				return // Client closed the connection
+			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout is normal
-				return
+				return // Timeout
 			}
-			if s.isUp {
-				fmt.Println("Error parsing request : ", err)
-			}
-			break
+			fmt.Println("Error parsing request:", err)
+			return
 		}
 
 		// Clear read deadline during processing

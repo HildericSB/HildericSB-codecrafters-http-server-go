@@ -20,10 +20,11 @@ type Request struct {
 func ParseRequest(conn net.Conn) (*Request, error) {
 	// Create a buffer and read the HTTP request from connection
 	buffer := make([]byte, config.BUFFER_SIZE)
+	fmt.Println("conn : ", conn)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		if err == io.EOF {
-			return nil, nil // No more data
+			return nil, err // No more data client closed the connection
 		}
 		return nil, fmt.Errorf("failed to read from connection: %w", err)
 	}
