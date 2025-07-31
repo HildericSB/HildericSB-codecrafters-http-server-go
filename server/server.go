@@ -20,6 +20,7 @@ import (
 
 type Server struct {
 	Port                      string
+	startTime                 time.Time
 	fileDir                   string
 	listener                  net.Listener
 	router                    *router.Router
@@ -54,6 +55,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	router.Handle("/files", handler.NewFileHandler(server.fileDir))
 	router.Handle("/echo", handler.NewEchoHandler())
 	router.Handle("/user-agent", handler.NewUserAgentHandler())
+	router.Handle("/health", handler.NewHealthHandler(&server.startTime))
 
 	return &server, nil
 }
@@ -105,6 +107,8 @@ func (s *Server) Start() error {
 	for i := range s.numberOfConnectionsWorker {
 		go s.startConnectionHandler(i)
 	}
+
+	s.startTime = time.Now()
 
 	// Listen for new connections
 	for {
