@@ -101,6 +101,13 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.listener = listener
+
+	// Update port with actual assigned port if it was 0
+	if s.Port == "0" {
+		addr := listener.Addr().(*net.TCPAddr)
+		s.Port = fmt.Sprintf("%d", addr.Port)
+	}
+
 	fmt.Println("Server listening on :", s.Port)
 
 	go s.gracefulShutdownRoutine()
@@ -140,10 +147,8 @@ func (s *Server) startConnectionHandler(workerID int) {
 	for {
 		select {
 		case conn := <-s.connectionsChan:
-			fmt.Printf("Worker %d handling connection\n", workerID)
 			s.handleConnection(conn)
 		case <-s.shutDownSignal:
-			fmt.Printf("Worker %d shutting down\n", workerID)
 			return
 		}
 	}

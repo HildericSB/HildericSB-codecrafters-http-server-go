@@ -53,8 +53,6 @@ func (r *Response) SendToClient(request *Request) error {
 
 	rep = rep + config.CRLF + body
 
-	fmt.Println("\n HTTP reponse : \n" + rep)
-
 	_, err := r.Connection.Write([]byte(rep))
 	if err != nil {
 		fmt.Println("Error writing http response to client ", err)

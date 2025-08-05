@@ -20,7 +20,6 @@ type Request struct {
 func ParseRequest(conn net.Conn) (*Request, error) {
 	// Create a buffer and read the HTTP request from connection
 	buffer := make([]byte, config.BUFFER_SIZE)
-	fmt.Println("conn : ", conn)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		if err == io.EOF {
@@ -40,10 +39,16 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 		return nil, fmt.Errorf("empty request")
 	}
 
+	// Parse the request line (e.g., "GET /path HTTP/1.1")
+	requestLineParts := strings.Split(lines[0], " ")
+	if len(requestLineParts) < 2 {
+		return nil, fmt.Errorf("malformed request line: %s", lines[0])
+	}
+
 	//Read path and method type
 	request := Request{
-		Path:       strings.Split(lines[0], " ")[1],
-		Method:     strings.Split(lines[0], " ")[0],
+		Path:       requestLineParts[1],
+		Method:     requestLineParts[0],
 		Connection: conn,
 		Headers:    make(map[string]string),
 	}
