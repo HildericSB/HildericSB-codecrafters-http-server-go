@@ -8,14 +8,10 @@ type Handler interface {
 	Handle(req *http.Request, resp *http.Response)
 }
 
-type Handlerfunc struct {
-	Fn func(request *http.Request, response *http.Response)
-}
+// Using Method on function type to allow both struct based handlers and
+// function based handlers
+type HandlerFunc func(req *http.Request, resp *http.Response)
 
-func (h Handlerfunc) Handle(request *http.Request, response *http.Response) {
-	h.Fn(request, response)
-}
-
-func HandlerFunc(handlerFn func(request *http.Request, response *http.Response)) Handler {
-	return Handlerfunc{Fn: handlerFn}
+func (h HandlerFunc) Handle(req *http.Request, resp *http.Response) {
+	h(req, resp)
 }

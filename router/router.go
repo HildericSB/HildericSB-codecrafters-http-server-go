@@ -9,8 +9,8 @@ import (
 )
 
 type Router struct {
-	routes      map[string]handler.Handler
-	middlewares []middleware.Middleware
+	routes map[string]handler.Handler
+	chain  middleware.Chain
 }
 
 func NewRouter() *Router {
@@ -24,29 +24,31 @@ func (r *Router) Handle(pattern string, handler handler.Handler) {
 }
 
 func (r *Router) ServeHTTP(request *http.Request, response *http.Response) {
-	if request.Path == "/" {
-		response.StatusCode = 200
-		return
-	}
-
-	pathFound := false
-	for pattern, handler := range r.routes {
-		if strings.HasPrefix(request.Path, pattern+"/") || request.Path == pattern {
-			handler.Handle(request, response)
-			pathFound = true
-			break
+	mainHandler := handler.HandlerFunc(func(req *http.Request, res *http.Response) {
+		if request.Path == "/" {
+			response.StatusCode = 200
+			return
 		}
-	}
 
-	if !pathFound {
-		response.StatusCode = 404
-	}
+		pathFound := false
+		for pattern, handler := range r.routes {
+			if strings.HasPrefix(request.Path, pattern+"/") || request.Path == pattern {
+				handler.Handle(request, response)
+				pathFound = true
+				break
+			}
+		}
 
-	for _, middleware := range r.middlewares {
-		middleware(request, response)
-	}
+		if !pathFound {
+			response.StatusCode = 404
+		}
+	})
+
+	// TODO : avoid constructing the main handler everytime
+	finalHandler := r.chain.ContructMainHandler(mainHandler)
+	finalHandler.Handle(request, response)
 }
 
 func (r *Router) Use(middlewares ...middleware.Middleware) {
-	r.middlewares = middlewares
+	r.chain = *middleware.NewChain(middlewares)
 }
