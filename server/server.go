@@ -42,6 +42,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	router.Use(
 		middleware.GzipMiddleware(),
+		middleware.LoggingMiddleware(),
 	)
 
 	server := Server{

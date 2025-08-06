@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/codecrafters-io/http-server-starter-go/handler"
 	"github.com/codecrafters-io/http-server-starter-go/http"
@@ -64,10 +65,21 @@ func GzipMiddleware() Middleware {
 	}
 }
 
-// func LoggingMiddleware() Middleware {
-// 	return func(req *http.Request, resp *http.Response) {
-// 		// 1. Record start time
-// 		// 2. Log the request details
-// 		// 3. After response is ready, log response details + duration
-// 	}
-// }
+func LoggingMiddleware() Middleware {
+	return func(next handler.Handler) handler.Handler {
+		return handler.HandlerFunc(func(req *http.Request, resp *http.Response) {
+			startTime := time.Now()
+			next.Handle(req, resp)
+			elapsed := time.Since(startTime)
+
+			log := fmt.Sprintf("[%s] %s %s - %d - %dms",
+				startTime.Format("2006/01/02 15:04:05"),
+				req.Method,
+				req.Path,
+				resp.StatusCode,
+				elapsed.Milliseconds())
+
+			fmt.Println(log)
+		})
+	}
+}
