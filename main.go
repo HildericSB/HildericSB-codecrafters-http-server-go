@@ -27,5 +27,5 @@ func parseFlags() *config.Config {
 	flag.StringVar(&cfg.FileDir, "directory", cfg.FileDir, "specifies the directory where the files are stored, as an absolute path.")
 	flag.Parse()
 
-	return &cfg
+	return cfg
 }

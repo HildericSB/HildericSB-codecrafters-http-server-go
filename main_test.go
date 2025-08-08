@@ -11,7 +11,7 @@ import (
 )
 
 func TestGracefulShutdown_WithActiveConnections(t *testing.T) {
-	server, err := server.NewServerWithDefaults()
+	server, err := server.NewServer(nil)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

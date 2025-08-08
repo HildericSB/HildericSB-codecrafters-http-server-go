@@ -24,28 +24,42 @@ func setupTestServer(t *testing.T) (*server.Server, string) {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
 
-	cfg := &config.Config{
-		Port:    "0", // Use port 0 to get a random available port
-		FileDir: tempDir,
-	}
+	cfg := config.DefaultConfig()
+	cfg.Port = "0"
+	cfg.FileDir = tempDir
 
 	srv, err := server.NewServer(cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
 
-	// Start server in goroutine
 	go srv.Start()
 
 	// Wait for server to start and get the actual port
-	time.Sleep(100 * time.Millisecond)
+	// Keep checking until we get a valid port
+	maxRetries := 50 // 5 seconds total
+	for i := 0; i < maxRetries; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if srv.Port != "0" && srv.Port != "" {
+			break
+		}
+		if i == maxRetries-1 {
+			t.Fatalf("Server failed to start within timeout")
+		}
+	}
 
 	return srv, tempDir
 }
 
 func cleanup(srv *server.Server, tempDir string) {
-	srv.ShutDown()
-	os.RemoveAll(tempDir)
+	if srv != nil {
+		srv.ShutDown()
+		// Add a longer delay to ensure server fully shuts down
+		time.Sleep(100 * time.Millisecond)
+	}
+	if tempDir != "" {
+		os.RemoveAll(tempDir)
+	}
 }
 
 func makeHTTPRequest(method, url, body string, headers map[string]string) (*http.Response, error) {
@@ -63,9 +77,12 @@ func makeHTTPRequest(method, url, body string, headers map[string]string) (*http
 		req.Header.Set(key, value)
 	}
 
+	req.Header.Set("Connection", "close")
+
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
+
 	return client.Do(req)
 }
 

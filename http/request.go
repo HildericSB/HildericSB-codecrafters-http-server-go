@@ -19,7 +19,7 @@ type Request struct {
 
 func ParseRequest(conn net.Conn) (*Request, error) {
 	// Create a buffer and read the HTTP request from connection
-	buffer := make([]byte, config.BUFFER_SIZE)
+	buffer := make([]byte, config.BufferSize)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		if err == io.EOF {

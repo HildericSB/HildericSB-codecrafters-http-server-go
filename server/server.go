@@ -1,11 +1,13 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -19,10 +21,10 @@ import (
 )
 
 type Server struct {
-	Port                      string
+	*config.Config
 	startTime                 time.Time
-	fileDir                   string
 	listener                  net.Listener
+	listenerTLS               net.Listener
 	router                    *router.Router
 	numberOfConnectionsWorker int
 	connectionsChan           chan net.Conn
@@ -32,12 +34,11 @@ type Server struct {
 	shutDownSignal            chan struct{}
 }
 
-func NewServerWithDefaults() (*Server, error) {
-	cfg := config.DefaultConfig()
-	return NewServer(&cfg)
-}
-
 func NewServer(cfg *config.Config) (*Server, error) {
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+
 	router := router.NewRouter()
 
 	router.Use(
@@ -46,15 +47,14 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	)
 
 	server := Server{
-		Port:                      cfg.Port,
-		fileDir:                   cfg.FileDir,
+		Config:                    cfg,
 		router:                    router,
 		shutDownSignal:            make(chan struct{}),
 		connectionsChan:           make(chan net.Conn, 100), // Using buffered chan so if new connections queue up, Accept() continues accepting
 		numberOfConnectionsWorker: 10,
 	}
 
-	router.Handle("/files", handler.NewFileHandler(server.fileDir))
+	router.Handle("/files", handler.NewFileHandler(server.FileDir))
 	router.Handle("/echo", handler.NewEchoHandler())
 	router.Handle("/user-agent", handler.NewUserAgentHandler())
 	router.Handle("/health", handler.NewHealthHandler(&server))
@@ -70,8 +70,14 @@ func (s *Server) ShutDown() {
 		s.listener.Close()
 	}
 
+	if s.listenerTLS != nil {
+		s.listenerTLS.Close()
+	}
+
 	// Wait for all connections to finish with timeout
 	done := make(chan struct{})
+	fmt.Println("opened connections " + strconv.FormatInt(s.openConnections, 10))
+
 	go func() {
 		s.connectionWaitGroup.Wait()
 		close(done)
@@ -96,6 +102,62 @@ func (s *Server) gracefulShutdownRoutine() {
 }
 
 func (s *Server) Start() error {
+	err := s.startTCPListener()
+	if err != nil {
+		return err
+	}
+
+	// Start TLS listener
+	tlsListener, err := tls.Listen("tcp", ":"+s.TLSPort, s.TlSConfig)
+	if err != nil {
+		return err
+	}
+	s.listenerTLS = tlsListener
+
+	// Start routine that trigger when shutting down
+	go s.gracefulShutdownRoutine()
+
+	// Start routine that handle connection creation
+	for i := range s.numberOfConnectionsWorker {
+		go s.startConnectionHandler(i)
+	}
+
+	s.startTime = time.Now()
+
+	go s.listenForConnections(s.listenerTLS)
+	go s.listenForConnections(s.listener)
+
+	<-s.shutDownSignal
+	return nil
+}
+
+func (s *Server) listenForConnections(listener net.Listener) {
+	// Listen for new connections
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-s.shutDownSignal:
+				fmt.Println("Shutdown signal received, listener probably closed.")
+				return
+			default:
+				fmt.Println("Error accepting connection: ", err.Error())
+				continue
+			}
+		}
+
+		select {
+		case s.connectionsChan <- conn:
+			// Connection sent to worker pool
+		default:
+			// Channel is full, reject the connection
+			fmt.Println("Worker pool full, rejecting connection")
+			conn.Close()
+		}
+	}
+}
+
+func (s *Server) startTCPListener() error {
 	listener, err := net.Listen("tcp", "0.0.0.0:"+s.Port)
 	if err != nil {
 		fmt.Println("Failed to bind to port ", s.Port)
@@ -109,39 +171,7 @@ func (s *Server) Start() error {
 		s.Port = fmt.Sprintf("%d", addr.Port)
 	}
 
-	fmt.Println("Server listening on :", s.Port)
-
-	go s.gracefulShutdownRoutine()
-
-	for i := range s.numberOfConnectionsWorker {
-		go s.startConnectionHandler(i)
-	}
-
-	s.startTime = time.Now()
-
-	// Listen for new connections
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			select {
-			case <-s.shutDownSignal:
-				fmt.Println("Shutdown signal received, listener probably closed.")
-				return nil
-			default:
-				fmt.Println("Error accepting connection: ", err.Error())
-				continue
-			}
-		}
-
-		select {
-		case s.connectionsChan <- conn:
-			// Connection sent to worker ppol
-		default:
-			// Channel is full, reject the connection
-			fmt.Println("Worker pool busy, rejecting connection")
-			conn.Close()
-		}
-	}
+	return nil
 }
 
 func (s *Server) startConnectionHandler(workerID int) {
